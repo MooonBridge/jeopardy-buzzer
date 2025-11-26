@@ -6,7 +6,7 @@
     <title>Jeopardy Buzzer</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/mqtt/4.3.7/mqtt.min.js"></script>
     <style>
-        /* Styles unchanged */
+        /* Styles */
         body { background-color: #121212; color: white; font-family: 'Segoe UI', sans-serif; text-align: center; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; overflow: hidden; }
         .setup-screen { display: flex; flex-direction: column; gap: 15px; width: 90%; max-width: 400px;}
         input, button { padding: 15px; font-size: 1.2rem; border-radius: 8px; border: none; width: 100%; box-sizing: border-box; }
@@ -57,7 +57,7 @@
             <button id="buzzer-btn" onclick="buzz()">GESPERRT</button>
         </div>
         <div id="status">Warte auf Freigabe...</div>
-        <button onclick="location.reload()" style="background:#444; margin-top:40px; width:auto; padding: 10px 20px; font-size: 1rem;">Abmelden</button>
+        <button onclick="leaveGame()" style="background:#444; margin-top:40px; width:auto; padding: 10px 20px; font-size: 1rem;">Abmelden</button>
         <p style="color:#555; font-size: 0.8rem; margin-top: 10px;">(Leertaste zum Buzzern)</p>
     </div>
 
@@ -82,6 +82,22 @@
                 }
             }
         });
+
+        // Cleanup beim Schließen
+        window.addEventListener('pagehide', () => {
+            if (isPlaying && client && client.connected) {
+                client.publish(`jeopardy/${roomId}/leave`, playerNum.toString());
+            }
+        });
+
+        function leaveGame() {
+            if (confirm("Wirklich abmelden?")) {
+                if (client && client.connected) {
+                    client.publish(`jeopardy/${roomId}/leave`, playerNum.toString());
+                }
+                location.reload();
+            }
+        }
 
         function connectAndFetchPlayers() {
             const inputRoom = document.getElementById("roomCode");
@@ -152,20 +168,18 @@
             const list = document.getElementById("nameList");
             list.innerHTML = "";
             
-            // Filtere belegte Spieler heraus
+            // Nur freie Spieler anzeigen
             const available = players.filter(p => !p.taken);
             
-            if(available.length === 0) {
-                list.innerHTML = "<p style='color:#888'>Alle Plätze belegt oder keine Spieler angelegt.</p>";
-            } else {
-                available.forEach((p) => {
-                    const btn = document.createElement("button");
-                    btn.className = "name-btn";
-                    btn.innerText = p.name;
-                    btn.onclick = () => joinGame(p.id, p.name); 
-                    list.appendChild(btn);
-                });
-            }
+            if(available.length === 0) list.innerHTML = "<p style='color:#888'>Alle Plätze belegt.</p>";
+
+            available.forEach((p) => {
+                const btn = document.createElement("button");
+                btn.className = "name-btn";
+                btn.innerText = p.name;
+                btn.onclick = () => joinGame(p.id, p.name); 
+                list.appendChild(btn);
+            });
         }
 
         function joinGame(idx, name) {
