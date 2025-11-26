@@ -6,7 +6,7 @@
     <title>Jeopardy Buzzer</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/mqtt/4.3.7/mqtt.min.js"></script>
     <style>
-        /* STYLES UNVERÄNDERT WIE VORHER */
+        /* Styles unchanged */
         body { background-color: #121212; color: white; font-family: 'Segoe UI', sans-serif; text-align: center; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; overflow: hidden; }
         .setup-screen { display: flex; flex-direction: column; gap: 15px; width: 90%; max-width: 400px;}
         input, button { padding: 15px; font-size: 1.2rem; border-radius: 8px; border: none; width: 100%; box-sizing: border-box; }
@@ -18,12 +18,13 @@
         .name-list { display: flex; flex-direction: column; gap: 10px; max-height: 60vh; overflow-y: auto; width: 100%; }
         .name-btn { background: #333; color: white; text-align: left; padding: 15px 20px; font-size: 1.1rem; border: 1px solid #444; cursor: pointer; }
         .name-btn:hover { background: #444; border-color: #FFD700; }
-        .name-btn.taken { background: #222; color: #555; border-color: #333; cursor: not-allowed; pointer-events: none; }
         #buzzer-btn { width: 70vw; height: 70vw; max-width: 300px; max-height: 300px; border-radius: 50%; border: 8px solid #222; font-size: 2rem; font-weight: bold; color: #888; background: #d32f2f; box-shadow: inset 0 0 20px #000; transition: all 0.1s; pointer-events: none; margin-top: 20px; display: flex; align-items: center; justify-content: center; user-select: none; -webkit-user-select: none; }
+        
         .unlocked { background: radial-gradient(circle, #00e676, #00c853) !important; color: white !important; border-color: #00c853 !important; box-shadow: 0 0 40px rgba(0, 230, 118, 0.4) !important; pointer-events: auto !important; cursor: pointer; }
         .unlocked:active { transform: scale(0.95); }
         .buzzed { background: #555 !important; color: #aaa !important; border-color: #777 !important; box-shadow: none !important; }
         .locked { background: #d32f2f !important; color: #ffcccc !important; border-color: #b71c1c !important; }
+        
         #status { margin-top: 30px; font-size: 1.4rem; color: #888; font-weight: bold; }
         #room-display { position: absolute; top: 20px; left: 20px; font-size: 0.9rem; color: #666; }
         .hidden { display: none !important; }
@@ -32,7 +33,6 @@
 </head>
 <body>
 
-    <!-- SETUP SCREENS -->
     <div id="screen-room" class="setup-screen">
         <h1>Jeopardy Buzzer</h1>
         <p style="color:#aaa; font-size:0.9rem; margin:0;">Verbindung zum Spielserver</p>
@@ -43,9 +43,11 @@
     </div>
 
     <div id="screen-name" class="setup-screen hidden">
-        <h2>Wer bist du?</h2>
+        <div style="display: flex; align-items: center; margin-bottom: 10px;">
+             <button onclick="location.reload()" style="width: 40px; height: 40px; padding: 0; background: #333; border-radius: 50%; font-size: 1.2rem;">◄</button>
+             <h2 style="margin: 0 0 0 20px;">Wer bist du?</h2>
+        </div>
         <div id="nameList" class="name-list">Lade Spieler...</div>
-        <button onclick="location.reload()" style="background:#444; margin-top:20px;">Zurück</button>
     </div>
 
     <div id="screen-game" class="hidden" style="flex-direction: column; align-items: center; width: 100%;">
@@ -67,7 +69,6 @@
         let roomId;
         let playerNum;
         let isPlaying = false;
-        let pingInterval;
 
         document.addEventListener('keydown', function(event) {
             if (event.code === 'Space') {
@@ -114,9 +115,6 @@
                 client.subscribe(`jeopardy/${roomId}/status`); 
                 client.publish(`jeopardy/${roomId}/players_request`, "get");
                 
-                // START PING LOOP
-                startPingLoop();
-                
                 setTimeout(() => {
                     if(document.getElementById("screen-room").classList.contains("hidden") === false) {
                         statusDiv.innerText = "Keine Antwort. Code falsch oder Host nicht bereit.";
@@ -135,36 +133,15 @@
                         alert("Der Host hat das Spiel beendet.");
                         location.reload();
                     } else {
-                        if (isPlaying) {
-                             updateBuzzerState(msg);
-                        }
+                        if (isPlaying) { updateBuzzerState(msg); }
                     }
                 }
             });
             
             client.on("error", (err) => {
-                statusDiv.innerText = "Verbindungsfehler!";
+                statusDiv.innerText = "Verbindungsfehler! Passwort prüfen.";
                 client.end();
             });
-        }
-        
-        function startPingLoop() {
-            // Sofort Ping
-            sendPing();
-            // Dann alle 5s
-            pingInterval = setInterval(sendPing, 5000);
-        }
-
-        function sendPing() {
-            // Nur pingen wenn playerNum gesetzt ist
-            if (client && client.connected && playerNum !== undefined) {
-                const payload = JSON.stringify({
-                    type: "ping",
-                    playerIdx: playerNum - 1,
-                    ts: Date.now()
-                });
-                client.publish(`jeopardy/${roomId}/ping`, payload);
-            }
         }
 
         function showNameSelection(players) {
@@ -175,36 +152,31 @@
             const list = document.getElementById("nameList");
             list.innerHTML = "";
             
-            if(players.length === 0) list.innerHTML = "<p style='color:#888'>Keine Spieler angelegt.</p>";
-
-            players.forEach((p) => {
-                const btn = document.createElement("button");
-                btn.className = "name-btn";
-                if (p.taken) {
-                    btn.innerText = p.name + " (Belegt)";
-                    btn.classList.add("taken");
-                } else {
+            // Filtere belegte Spieler heraus
+            const available = players.filter(p => !p.taken);
+            
+            if(available.length === 0) {
+                list.innerHTML = "<p style='color:#888'>Alle Plätze belegt oder keine Spieler angelegt.</p>";
+            } else {
+                available.forEach((p) => {
+                    const btn = document.createElement("button");
+                    btn.className = "name-btn";
                     btn.innerText = p.name;
                     btn.onclick = () => joinGame(p.id, p.name); 
-                }
-                list.appendChild(btn);
-            });
+                    list.appendChild(btn);
+                });
+            }
         }
 
         function joinGame(idx, name) {
             playerNum = idx;
             isPlaying = true;
-
             document.getElementById("screen-name").classList.add("hidden");
             document.getElementById("screen-name").classList.remove("flex");
             document.getElementById("screen-game").classList.remove("hidden");
             document.getElementById("screen-game").classList.add("flex");
             document.getElementById("playerNameDisplay").innerText = name;
             document.getElementById("room-display").innerText = "Room: " + roomId;
-            
-            // Initial Ping mit ID
-            sendPing();
-            
             client.publish(`jeopardy/${roomId}/join`, idx.toString());
             updateBuzzerState("locked");
         }
@@ -228,20 +200,11 @@
 
         function buzz() {
             const btn = document.getElementById("buzzer-btn");
-            
-            // JSON BUZZ
-            const payload = JSON.stringify({
-                type: "buzz",
-                playerIdx: playerNum - 1,
-                ts: Date.now()
-            });
-            client.publish(`jeopardy/${roomId}/buzz`, payload);
-            
+            client.publish(`jeopardy/${roomId}/buzz`, playerNum.toString());
             btn.className = "buzzed";
             btn.innerText = "GEBUZZERT!";
             document.getElementById("status").innerText = "Signal gesendet!";
             if(navigator.vibrate) navigator.vibrate([50, 50, 50]);
-            
             setTimeout(() => {
                if (btn.innerText === "GEBUZZERT!") {
                    btn.className = "locked";
