@@ -1,237 +1,856 @@
-<!DOCTYPE html>
-<html lang="de">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Jeopardy Buzzer</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/mqtt/4.3.7/mqtt.min.js"></script>
-    <style>
-        body { background-color: #121212; color: white; font-family: 'Segoe UI', sans-serif; text-align: center; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; overflow: hidden; }
-        
-        .setup-screen { display: flex; flex-direction: column; gap: 15px; width: 90%; max-width: 400px;}
-        input, button { padding: 15px; font-size: 1.2rem; border-radius: 8px; border: none; width: 100%; }
-        input { background: #333; color: white; border: 1px solid #555; }
-        button { background: #283593; color: white; font-weight: bold; cursor: pointer; transition: background 0.2s; }
-        button:active { transform: scale(0.98); }
-        
-        h1, h2 { margin-bottom: 10px; color: #FFD700; }
+import tkinter as tk
+from tkinter import messagebox, Toplevel
+from functools import partial
+import json
+import os
+import io
+import urllib.request
+import urllib.parse
+import threading
+import random
+import time
+import paho.mqtt.client as mqtt
+import ssl # WICHTIG FÜR CLOUD
 
-        .name-list { display: flex; flex-direction: column; gap: 10px; max-height: 60vh; overflow-y: auto; width: 100%; }
-        .name-btn { background: #333; color: white; text-align: left; padding: 15px 20px; font-size: 1.1rem; border: 1px solid #444; }
-        .name-btn:hover { background: #444; border-color: #FFD700; }
+# --- BIBLIOTHEKEN CHECK ---
+try:
+    from PIL import Image, ImageTk
+    import requests
+    Image.MAX_IMAGE_PIXELS = None 
+    IMAGES_AVAILABLE = True
+except ImportError:
+    IMAGES_AVAILABLE = False
+    print("ACHTUNG: 'Pillow' und 'requests' Bibliotheken fehlen.")
+
+# ==========================================
+# KONFIGURATION
+# ==========================================
+
+QUIZ_FILENAME = "geography_quiz.json" 
+
+# --- MQTT CLOUD CONFIG (HIER DEINE DATEN EINTRAGEN!) ---
+MQTT_BROKER = "8a4b97051b294cff830f708512f57d7c.s1.eu.hivemq.cloud"
+MQTT_PORT = 8883
+MQTT_USER = "DEIN_USER_HIER"       # <--- HIER ÄNDERN (Aus Access Management)
+MQTT_PASSWORD = "DEIN_PASSWORT_HIER" # <--- HIER ÄNDERN
+
+# Feste ID zum Testen oder Random
+ROOM_ID = f"JEO-{random.randint(1000, 9999)}"
+
+# --- FARBEN ---
+COLOR_BG_MAIN = "#121212"      
+COLOR_BG_CARD = "#1E1E1E"      
+COLOR_BG_BUTTON = "#252526"    
+COLOR_BORDER_DEFAULT = "#444444" 
+COLOR_BORDER_HOVER = "#FFD700"   
+COLOR_BTN_HOVER_BG = "#333333"   
+COLOR_BTN_DEFAULT = "#37474F"    
+COLOR_BTN_HOVER = "#455A64"      
+
+COLOR_ACCENT = "#FFD700"       
+COLOR_TEXT_MAIN = "#F0F0F0"    
+COLOR_TEXT_MUTED = "#AAAAAA"   
+COLOR_HEADER = "#283593"       
+COLOR_SUCCESS = "#2E7D32"      
+COLOR_ERROR = "#C62828"        
+COLOR_DONE = "#3E4149"       
+COLOR_SCORE_BG = "#000000"     
+COLOR_HOST_BG = "#2D3436"
+COLOR_SIDEBAR_BG = "#181818" 
+COLOR_INPUT_BG = "#111"     
+
+# --- FONTS ---
+FONT_TITLE = ("Segoe UI", 60, "bold")
+FONT_HEAD = ("Segoe UI", 30, "bold")
+FONT_BODY = ("Segoe UI", 24)
+FONT_BTN = ("Segoe UI", 18, "bold")
+
+HOST_FONT_Q = ("Segoe UI", 24, "bold")      
+HOST_FONT_A = ("Segoe UI", 20, "bold")      
+HOST_FONT_OPT = ("Segoe UI", 14)            
+HOST_FONT_PLAYER = ("Segoe UI", 14, "bold") 
+HOST_FONT_SCORE = ("Segoe UI", 18, "bold")  
+
+# --- STYLES ---
+BTN_STYLE_HOST = {"bg": "#444", "fg": "white", "relief": "flat", "bd": 0, "activebackground": "#555", "activeforeground": "white", "cursor": "hand2"}
+BTN_STYLE_LIGHT = {"bg": "#E0E0E0", "fg": "black", "activebackground": "#FFFFFF", "activeforeground": "black", "highlightbackground": "#E0E0E0", "relief": "flat", "bd": 0, "cursor": "hand2"}
+BTN_STYLE_STD = {"bg": COLOR_BTN_DEFAULT, "fg": "white", "activebackground": COLOR_BTN_HOVER, "activeforeground": "white", "relief": "flat", "bd": 0, "cursor": "hand2"}
+BTN_STYLE_ACCENT = {"bg": COLOR_ACCENT, "fg": "black", "activebackground": "#FFEA00", "activeforeground": "black", "relief": "flat", "bd": 0, "cursor": "hand2"}
+
+BASE_WIDTH = 1920
+BASE_HEIGHT = 1080
+
+class JeopardyGame:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Jeopardy! - TV SCREEN")
+        self.root.configure(bg=COLOR_BG_MAIN)
         
-        #buzzer-btn {
-            width: 70vw; height: 70vw; max-width: 300px; max-height: 300px;
-            border-radius: 50%; border: 8px solid #333; 
-            font-size: 2rem; font-weight: bold; color: #555;
-            background: #222;
-            box-shadow: inset 0 0 20px #000;
-            transition: all 0.1s;
-            pointer-events: none; 
-            margin-top: 20px;
-            display: flex; align-items: center; justify-content: center;
-            user-select: none; -webkit-user-select: none;
-        }
+        screen_w = self.root.winfo_screenwidth()
+        screen_h = self.root.winfo_screenheight()
+        w = int(screen_w * 0.8)
+        h = int(screen_h * 0.8)
+        self.root.geometry(f"{w}x{h}")
 
-        .unlocked {
-            background: radial-gradient(circle, #00e676, #00c853) !important;
-            color: white !important;
-            border-color: #00c853 !important;
-            box-shadow: 0 0 40px rgba(0, 230, 118, 0.4) !important;
-            pointer-events: auto !important;
-            cursor: pointer;
-        }
-        .unlocked:active {
-            transform: scale(0.95);
-        }
-
-        .buzzed {
-            background: radial-gradient(circle, #ffea00, #ffd600) !important;
-            color: black !important;
-            border-color: #ffd600 !important;
-            box-shadow: 0 0 40px rgba(255, 214, 0, 0.6) !important;
-        }
+        self.game_data = self.load_data(QUIZ_FILENAME)
         
-        .locked {
-            background: #222 !important;
-            color: #555 !important;
-            border-color: #333 !important;
-        }
+        self.players = []
+        self.current_player_idx = 0 
+        self.turn_starter_idx = 0 
         
-        #status { margin-top: 30px; font-size: 1.4rem; color: #888; font-weight: bold; }
-        #room-display { position: absolute; top: 20px; left: 20px; font-size: 0.9rem; color: #666; }
-    </style>
-</head>
-<body>
-
-    <!-- 1. ROOM CODE -->
-    <div id="screen-room" class="setup-screen">
-        <h1>Jeopardy Buzzer</h1>
-        <p style="color:#aaa; font-size:0.9rem;">Gib den Code vom TV ein</p>
-        <input type="text" id="roomCode" placeholder="JEO-XXXX" style="text-transform: uppercase; text-align:center; font-size: 1.5rem; letter-spacing: 2px;">
-        <button onclick="connectAndFetchPlayers()">Raum suchen</button>
-        <div id="conn-status" style="color: #888; margin-top: 10px; font-size: 0.9rem;"></div>
-    </div>
-
-    <!-- 2. NAME SELECT -->
-    <div id="screen-name" class="setup-screen" style="display: none;">
-        <h2>Wer bist du?</h2>
-        <div id="nameList" class="name-list">Lade Spieler...</div>
-        <button onclick="location.reload()" style="background:#444; margin-top:20px;">Zurück</button>
-    </div>
-
-    <!-- 3. GAME -->
-    <div id="screen-game" style="display: none; flex-direction: column; align-items: center; width: 100%;">
-        <div id="room-display"></div>
-        <h2 id="playerNameDisplay" style="font-size: 2rem; margin-top: 40px;">Spieler</h2>
+        self.current_round_index = 0
+        self.questions_remaining = 0
+        self.completed_questions = set()
+        self.buttons = {}
         
-        <div id="buzzer-container">
-            <button id="buzzer-btn" onclick="buzz()">GESPERRT</button>
-        </div>
+        self.active_question_data = None
+        self.active_question_coords = None
+        self.current_shuffled_opts = [] 
+        self.reveal_step = 0
+        self.current_q_widgets = [] 
         
-        <div id="status">Warte auf Freigabe...</div>
-    </div>
-
-    <script>
-        // KORREKTE PORTS FÜR BROWSER (WebSocket)
-        const BROKER = "wss://broker.hivemq.com:8000/mqtt";
+        self.is_buzzer_mode = False 
+        self.buzzer_message_shown = False 
         
-        let client;
-        let roomId;
-        let playerNum;
+        self.buzzer_queue = [] 
+        self.buzzer_start_time = 0
+        self.buzzers_locked = True
+        
+        self.preloaded_image = None
+        self.is_image_loading = False
+        self.current_image_ref_tv = None
+        self.preloaded_pil = None
+        
+        self.host_score_entries = [] 
+        self.tv_overlay_score_labels = []
+        self.helper_labels = []
+        
+        # --- MQTT SETUP (TLS) ---
+        try:
+            self.mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
+        except AttributeError:
+            self.mqtt_client = mqtt.Client()
 
-        function connectAndFetchPlayers() {
-            const input = document.getElementById("roomCode");
-            roomId = input.value.trim().toUpperCase();
+        # WICHTIG: TLS aktivieren für Cloud
+        self.mqtt_client.tls_set()
+        self.mqtt_client.username_pw_set(MQTT_USER, MQTT_PASSWORD)
+
+        self.mqtt_client.on_connect = self.on_mqtt_connect
+        self.mqtt_client.on_message = self.on_mqtt_message
+        self.connect_mqtt()
+
+        # --- HOST FENSTER ---
+        self.host_window = Toplevel(root)
+        self.host_window.title(f"MODERATOR CONTROL - ROOM: {ROOM_ID}")
+        self.host_window.geometry("1500x900") 
+        self.host_window.configure(bg=COLOR_HOST_BG)
+        self.host_window.protocol("WM_DELETE_WINDOW", self.root.quit)
+
+        # --- HOST LAYOUT ---
+        self.host_container = tk.Frame(self.host_window, bg=COLOR_HOST_BG)
+        self.host_container.pack(fill="both", expand=True)
+
+        self.host_main_frame = tk.Frame(self.host_container, bg=COLOR_HOST_BG)
+        self.host_main_frame.pack(side="left", fill="both", expand=True)
+
+        self.host_sidebar = tk.Frame(self.host_container, bg=COLOR_SIDEBAR_BG, width=350)
+        self.host_sidebar.pack(side="right", fill="y")
+        self.host_sidebar.pack_propagate(False)
+
+        tk.Label(self.host_sidebar, text=f"ROOM CODE:\n{ROOM_ID}", font=("Segoe UI", 20, "bold"), bg=COLOR_SIDEBAR_BG, fg=COLOR_ACCENT).pack(pady=20)
+        self.lbl_buzzer_status = tk.Label(self.host_sidebar, text="Buzzer: GESPERRT", font=("Segoe UI", 14, "bold"), bg=COLOR_ERROR, fg="white", width=20)
+        self.lbl_buzzer_status.pack(pady=10)
+        
+        tk.Label(self.host_sidebar, text="BUZZER REIHENFOLGE", font=("Segoe UI", 12), bg=COLOR_SIDEBAR_BG, fg="#888").pack(pady=(20, 5))
+        self.queue_frame = tk.Frame(self.host_sidebar, bg=COLOR_SIDEBAR_BG)
+        self.queue_frame.pack(fill="both", expand=True, padx=10)
+
+        # --- BINDINGS ---
+        self.root.bind_all("<space>", self.handle_space_reveal)
+        self.root.bind("<Configure>", self.on_resize)
+        
+        self.root.bind_all("w", lambda e: self.hotkey_rate(True))
+        self.root.bind_all("r", lambda e: self.hotkey_rate(True))
+        self.root.bind_all("f", lambda e: self.hotkey_rate(False))
+
+        self.show_intro_logo()
+        self.show_quiz_selection()
+
+    # --- MQTT LOGIC ---
+    def connect_mqtt(self):
+        try:
+            print(f"Verbinde zu MQTT Broker {MQTT_BROKER} (TLS)...")
+            self.mqtt_client.connect(MQTT_BROKER, MQTT_PORT, 60)
+            self.mqtt_client.loop_start() 
+        except Exception as e:
+            print(f"MQTT Fehler: {e}")
+            messagebox.showerror("MQTT Fehler", "Keine Verbindung zum Buzzer-Server.\nDaten prüfen!")
+
+    def on_mqtt_connect(self, client, userdata, flags, rc, properties=None):
+        if rc == 0:
+            print(f"Verbunden! (Code {rc})")
+            client.subscribe(f"jeopardy/{ROOM_ID}/buzz")
+            client.subscribe(f"jeopardy/{ROOM_ID}/players_request")
+        else:
+            print(f"Verbindung fehlgeschlagen! Code: {rc}")
+            # 5 = Auth Error
+
+    def on_mqtt_message(self, client, userdata, msg):
+        topic = msg.topic
+        payload = msg.payload.decode()
+
+        if topic.endswith("players_request"):
+            player_names = [p['name'] for p in self.players]
+            resp_payload = json.dumps(player_names)
+            client.publish(f"jeopardy/{ROOM_ID}/players_response", resp_payload)
+            return
+
+        if topic.endswith("buzz"):
+            if self.buzzers_locked: return
+            try:
+                player_idx = int(payload) - 1 
+                if 0 <= player_idx < len(self.players):
+                    already_in = any(p[0] == player_idx for p in self.buzzer_queue)
+                    if not already_in:
+                        timestamp = time.time()
+                        diff = round(timestamp - self.buzzer_start_time, 3)
+                        self.buzzer_queue.append((player_idx, diff))
+                        self.root.after(0, self.update_sidebar_queue)
+                        if len(self.buzzer_queue) == 1:
+                            self.root.after(0, lambda: self.set_active_player(player_idx, from_buzzer=True))
+            except Exception as e: print(f"Buzzer Error: {e}")
+
+    def unlock_buzzers(self):
+        self.buzzers_locked = False
+        self.buzzer_start_time = time.time()
+        self.buzzer_queue = [] 
+        self.update_sidebar_queue()
+        self.lbl_buzzer_status.config(text="Buzzer: OFFEN", bg=COLOR_SUCCESS)
+        self.mqtt_client.publish(f"jeopardy/{ROOM_ID}/status", "unlocked", retain=True)
+
+    def lock_buzzers(self):
+        self.buzzers_locked = True
+        self.lbl_buzzer_status.config(text="Buzzer: GESPERRT", bg=COLOR_ERROR)
+        self.mqtt_client.publish(f"jeopardy/{ROOM_ID}/status", "locked", retain=True)
+
+    def update_sidebar_queue(self):
+        for w in self.queue_frame.winfo_children(): w.destroy()
+        if not self.buzzer_queue:
+            tk.Label(self.queue_frame, text="(Warte auf Buzzer...)", bg=COLOR_SIDEBAR_BG, fg="#666", font=("Segoe UI", 12, "italic")).pack(pady=10)
+            return
+        for i, (p_idx, t_diff) in enumerate(self.buzzer_queue):
+            name = self.players[p_idx]["name"]
+            f = tk.Frame(self.queue_frame, bg="#333", pady=5, padx=5)
+            f.pack(fill="x", pady=2)
+            tk.Label(f, text=f"#{i+1}", bg="#333", fg=COLOR_ACCENT, font=("Arial", 12, "bold"), width=3).pack(side="left")
+            tk.Label(f, text=name, bg="#333", fg="white", font=("Arial", 12), anchor="w").pack(side="left", fill="x", expand=True)
+            tk.Label(f, text=f"+{t_diff}s", bg="#333", fg="#aaa", font=("Arial", 10)).pack(side="right")
+
+    # --- HELPERS ---
+    def get_available_quizzes(self):
+        return [f for f in os.listdir('.') if f.endswith('.json')]
+
+    def validate_and_load_quiz(self, filename):
+        try:
+            with open(filename, "r", encoding="utf-8") as f: data = json.load(f)
+            if "rounds" not in data: raise ValueError("JSON ungültig.")
+            return data
+        except Exception as e:
+            messagebox.showerror("Fehler", str(e))
+            return None
+
+    def load_data(self, filename):
+        return self.validate_and_load_quiz(filename) if os.path.exists(filename) else None
+
+    def on_resize(self, event): pass
+    
+    def get_scale_factor(self):
+        self.root.update_idletasks()
+        return min(self.root.winfo_width() / BASE_WIDTH, self.root.winfo_height() / BASE_HEIGHT)
+
+    def get_font_size(self, base_size):
+        return max(10, int(base_size * self.get_scale_factor()))
+
+    def hotkey_rate(self, is_correct):
+        if self.active_question_data and self.active_question_data.get("type") == "free":
+            self.handle_answer_evaluation(is_correct)
+
+    # --- IMAGE LOADING ---
+    def start_image_preload(self, url, w_pct, h_pct):
+        self.preloaded_pil = None
+        if not IMAGES_AVAILABLE or not url: return
+        self.is_image_loading = True
+        self.root.update_idletasks()
+        w = int(self.root.winfo_width() * w_pct)
+        h = int(self.root.winfo_height() * h_pct)
+        thread = threading.Thread(target=self._preload_worker, args=(url, w, h))
+        thread.daemon = True
+        thread.start()
+
+    def _preload_worker(self, url, w, h):
+        if url.lower().endswith(".svg") and "upload.wikimedia.org" in url:
+            try:
+                parts = urllib.parse.unquote(url).split("/")
+                if "wikipedia" in parts:
+                    idx = parts.index("wikipedia")
+                    if len(parts) > idx + 2:
+                        parts.insert(idx + 2, "thumb")
+                        parts.append(f"800px-{parts[-1]}.png")
+                        url = "/".join(parts)
+            except: pass
+        try:
+            headers = {'User-Agent': 'JeopardyGame/1.0'}
+            resp = requests.get(url, headers=headers, timeout=8)
+            resp.raise_for_status()
+            data = io.BytesIO(resp.content)
+            pil = Image.open(data)
+            pil.thumbnail((w, h), Image.Resampling.LANCZOS)
+            self.preloaded_pil = pil
+            self.is_image_loading = False
+        except: 
+            self.is_image_loading = False; self.preloaded_pil = None
+
+    def clear_host_main(self):
+        for w in self.host_main_frame.winfo_children(): w.destroy()
+
+    # --- UI: START ---
+    def show_intro_logo(self):
+        self.clear_window(self.root)
+        f_title = ("Segoe UI", self.get_font_size(80), "bold")
+        tk.Label(self.root, text="JEOPARDY!", font=f_title, bg=COLOR_BG_MAIN, fg=COLOR_ACCENT).pack(expand=True)
+        tk.Label(self.root, text=f"Room Code: {ROOM_ID}", font=("Segoe UI", self.get_font_size(40)), bg=COLOR_BG_MAIN, fg="white").pack(pady=20)
+
+    def show_quiz_selection(self):
+        self.clear_host_main()
+        tk.Label(self.host_main_frame, text="QUIZ WÄHLEN", font=("Segoe UI", 28, "bold"), bg=COLOR_HOST_BG, fg="white").pack(pady=20)
+        frame_list = tk.Frame(self.host_main_frame, bg=COLOR_HOST_BG)
+        frame_list.pack(fill="both", expand=True, padx=50, pady=10)
+        quizzes = self.get_available_quizzes()
+        if not quizzes: tk.Label(frame_list, text="Keine .json Dateien!", fg=COLOR_ERROR, bg=COLOR_HOST_BG).pack()
+        for q in quizzes:
+            tk.Button(frame_list, text=q, font=("Segoe UI", 20), **BTN_STYLE_HOST, command=partial(self.select_quiz, q)).pack(pady=5, fill="x")
+
+    def select_quiz(self, filename):
+        data = self.validate_and_load_quiz(filename)
+        if data:
+            self.game_data = data
+            self.show_intro_screen_with_title()
+            self.start_setup_phase_1()
+
+    def show_intro_screen_with_title(self):
+        self.clear_window(self.root)
+        t = self.game_data.get("game_title", "Jeopardy")
+        tk.Label(self.root, text=t, font=("Segoe UI", self.get_font_size(70), "bold"), bg=COLOR_BG_MAIN, fg=COLOR_ACCENT).pack(expand=True)
+        tk.Label(self.root, text=f"Room Code: {ROOM_ID}", font=("Segoe UI", self.get_font_size(40)), bg=COLOR_BG_MAIN, fg="white").pack(pady=10)
+        tk.Label(self.root, text="Warte auf Start...", font=("Segoe UI", self.get_font_size(30)), bg=COLOR_BG_MAIN, fg=COLOR_TEXT_MUTED).pack(pady=50)
+
+    # --- UI: SETUP ---
+    def start_setup_phase_1(self):
+        self.clear_host_main()
+        tk.Label(self.host_main_frame, text="ANZAHL SPIELER", font=("Segoe UI", 24, "bold"), bg=COLOR_HOST_BG, fg="white").pack(pady=30)
+        f = tk.Frame(self.host_main_frame, bg=COLOR_HOST_BG)
+        f.pack()
+        for c in range(2, 7):
+            tk.Button(f, text=str(c), font=("Segoe UI", 28, "bold"), width=3, **BTN_STYLE_HOST, command=partial(self.start_setup_phase_2, c)).pack(side="left", padx=15, pady=20)
+
+    def start_setup_phase_2(self, count):
+        self.clear_host_main()
+        tk.Label(self.host_main_frame, text="NAMEN", font=("Segoe UI", 24, "bold"), bg=COLOR_HOST_BG, fg="white").pack(pady=20)
+        self.name_entries = []
+        f = tk.Frame(self.host_main_frame, bg=COLOR_HOST_BG)
+        f.pack(pady=10)
+        for i in range(count):
+            row = tk.Frame(f, bg=COLOR_HOST_BG, pady=8)
+            row.pack(fill="x")
+            tk.Label(row, text=f"P{i+1}: ", font=("Segoe UI", 18), bg=COLOR_HOST_BG, fg="white", width=5).pack(side="left")
+            e = tk.Entry(row, font=("Segoe UI", 18), width=25, bg="#333", fg="white", insertbackground="white")
+            e.insert(0, f"Team {i+1}")
+            e.pack(side="left")
+            self.name_entries.append(e)
+        tk.Button(self.host_main_frame, text="WEITER", font=("Segoe UI", 22, "bold"), bg=COLOR_ACCENT, fg="black", relief="flat", command=self.finalize_setup).pack(pady=40)
+
+    def finalize_setup(self):
+        self.players = []
+        for e in self.name_entries: self.players.append({"name": e.get().strip() or "Unknown", "score": 0})
+        self.update_sidebar_queue() # Init
+        self.show_host_start_selection()
+
+    def show_host_start_selection(self):
+        self.clear_host_main()
+        tk.Label(self.host_main_frame, text="WER STARTET?", font=("Segoe UI", 24, "bold"), bg=COLOR_HOST_BG, fg="white").pack(pady=30)
+        for i, p in enumerate(self.players):
+            tk.Button(self.host_main_frame, text=p['name'], font=("Segoe UI", 20), **BTN_STYLE_HOST, command=partial(self.start_game, i)).pack(fill="x", padx=80, pady=10)
+
+    def start_game(self, idx):
+        self.current_player_idx = idx
+        self.setup_round()
+
+    # --- BOARD ---
+    def setup_round(self):
+        self.clear_window(self.root)
+        self.completed_questions.clear()
+        self.buttons = {}
+        self.is_buzzer_mode = False
+        self.buzzer_message_shown = False
+        self.lock_buzzers()
+
+        rd = self.game_data["rounds"][self.current_round_index]
+        cats = rd["categories"]
+        num_cats = len(cats)
+        max_q = 0 if num_cats == 0 else max(len(c["questions"]) for c in cats)
+        self.questions_remaining = sum(len(c["questions"]) for c in cats)
+
+        for i in range(num_cats): self.root.grid_columnconfigure(i, weight=1)
+
+        tk.Label(self.root, text=rd["round_name"], font=("Segoe UI", self.get_font_size(40), "bold"),
+                 bg=COLOR_BG_MAIN, fg=COLOR_TEXT_MAIN, pady=20).grid(row=0, column=0, columnspan=num_cats, sticky="nsew")
+
+        for i, c in enumerate(cats):
+            f = tk.Frame(self.root, bg=COLOR_HEADER, bd=0) 
+            f.grid(row=1, column=i, sticky="nsew", padx=4, pady=4)
+            tk.Label(f, text=c["title"], font=("Segoe UI", self.get_font_size(22), "bold"),
+                     bg=COLOR_HEADER, fg="white", wraplength=300).pack(expand=True, fill="both", padx=10, pady=10)
+
+        for r in range(max_q):
+            self.root.grid_rowconfigure(r+2, weight=1)
+            for c_idx, cat in enumerate(cats):
+                if r < len(cat["questions"]):
+                    pts = cat["questions"][r]["points"]
+                    btn = tk.Button(self.root, text=str(pts), font=("Impact", self.get_font_size(40)),
+                                    bg=COLOR_BG_CARD, fg=COLOR_ACCENT, 
+                                    activebackground=COLOR_ACCENT, activeforeground=COLOR_BG_MAIN,
+                                    relief="flat", bd=0, cursor="hand2",
+                                    command=partial(self.open_question, c_idx, r))
+                    btn.grid(row=r+2, column=c_idx, sticky="nsew", padx=4, pady=4)
+                    self.buttons[(c_idx, r)] = btn
+
+        self.draw_scoreboard_tv(num_cats)
+        self.update_host_status_idle()
+
+    def update_host_status_idle(self):
+        self.clear_host_main()
+        tk.Label(self.host_main_frame, text="BOARD AKTIV", font=("Segoe UI", 36, "bold"), bg=COLOR_HOST_BG, fg=COLOR_ACCENT).pack(pady=50)
+        tk.Label(self.host_main_frame, text=f"Aktiver Spieler: {self.players[self.current_player_idx]['name']}", 
+                 font=("Segoe UI", 24), bg=COLOR_HOST_BG, fg="white").pack()
+        self.lock_buzzers()
+
+    # --- QUESTION ---
+    def open_question(self, c, r):
+        self.active_question_data = self.game_data["rounds"][self.current_round_index]["categories"][c]["questions"][r]
+        self.active_question_coords = (c, r)
+        self.turn_starter_idx = self.current_player_idx
+        
+        self.reveal_step = 0
+        self.current_q_widgets = []
+        self.is_buzzer_mode = False
+        self.buzzer_message_shown = False
+        self.tv_overlay_score_labels = []
+        self.lock_buzzers() 
+        
+        self.current_shuffled_opts = []
+        raw_opts = self.active_question_data.get("opts", [])
+        q_type = self.active_question_data.get("type", "mc")
+        correct_let = self.active_question_data["a"]
+        
+        if q_type in ["mc", "tf"]:
+            parsed = []
+            for opt in raw_opts:
+                parts = opt.split(")", 1)
+                if len(parts) > 1:
+                    original_char = parts[0].strip()
+                    text = parts[1].strip()
+                    is_correct = (original_char == correct_let)
+                    parsed.append({"text": text, "is_correct": is_correct})
+                else:
+                    parsed.append({"text": opt, "is_correct": False})
             
-            if (!roomId) {
-                input.style.borderColor = "red";
-                return;
-            }
+            if q_type == "mc":
+                random.shuffle(parsed)
+            
+            letters = ["A", "B", "C", "D", "E"]
+            for i, item in enumerate(parsed):
+                new_let = letters[i] if i < len(letters) else "?"
+                item["display_text"] = f"{new_let}) {item['text']}"
+                item["display_let"] = new_let
+            
+            self.current_shuffled_opts = parsed
+        
+        if "img" in self.active_question_data:
+            self.start_image_preload(self.active_question_data["img"], 0.6, 0.35)
 
-            document.getElementById("conn-status").innerText = "Verbinde zu Server...";
+        self.q_overlay = tk.Frame(self.root, bg=COLOR_BG_MAIN)
+        self.q_overlay.place(relx=0, rely=0, relwidth=1, relheight=1)
+        
+        head_f = tk.Frame(self.q_overlay, bg=COLOR_BG_MAIN)
+        head_f.pack(fill="x", pady=20, padx=50)
+        
+        font_head = ("Segoe UI", self.get_font_size(30), "bold")
+        tk.Label(head_f, text=f"{self.active_question_data['points']} €", font=font_head, bg=COLOR_BG_MAIN, fg=COLOR_ACCENT).pack(side="left")
+        self.lbl_tv_active_player = tk.Label(head_f, text=f"Dran: {self.players[self.current_player_idx]['name']}", 
+                                             font=font_head, bg=COLOR_BG_MAIN, fg="white")
+        self.lbl_tv_active_player.pack(side="right")
+
+        self.content_frame = tk.Frame(self.q_overlay, bg=COLOR_BG_MAIN)
+        self.content_frame.pack(expand=True, fill="both", padx=50)
+        
+        self.center_content_frame = tk.Frame(self.content_frame, bg=COLOR_BG_MAIN)
+        self.center_content_frame.place(relx=0.5, rely=0.5, anchor="center", relwidth=1)
+        
+        self.lbl_question_tv = tk.Label(self.center_content_frame, text="", font=("Segoe UI", self.get_font_size(40), "bold"), 
+                                        bg=COLOR_BG_MAIN, fg="white", wraplength=self.root.winfo_width()*0.8)
+        self.lbl_question_tv.pack(pady=(10, 30)) 
+
+        self.options_grid_frame = tk.Frame(self.center_content_frame, bg=COLOR_BG_MAIN)
+        self.options_grid_frame.pack(pady=10, fill="x") 
+
+        self.build_tv_score_footer(self.q_overlay)
+        self.build_host_question_ui()
+        
+        if self.active_question_data.get("joker"):
+            self.show_joker_animation()
+
+    def show_joker_animation(self):
+        l = tk.Label(self.q_overlay, text="★ DAILY DOUBLE ★", font=("Impact", self.get_font_size(80)), 
+                     bg=COLOR_ACCENT, fg="black", padx=50, pady=50, relief="solid", bd=5)
+        l.place(relx=0.5, rely=0.5, anchor="center")
+        def blink(count):
+            if count > 6: l.destroy(); return
+            curr_bg = l.cget("bg")
+            new_bg = "white" if curr_bg == COLOR_ACCENT else COLOR_ACCENT
+            l.config(bg=new_bg)
+            self.root.after(300, blink, count+1)
+        self.root.after(300, blink, 0)
+
+    def build_tv_score_footer(self, parent):
+        foot = tk.Frame(parent, bg=COLOR_BG_CARD, height=80)
+        foot.pack(side="bottom", fill="x")
+        font_s = ("Segoe UI", self.get_font_size(20), "bold")
+        for i, p in enumerate(self.players):
+            c = COLOR_ACCENT if i == self.current_player_idx else "#666"
+            f = tk.Frame(foot, bg=COLOR_BG_CARD, padx=20)
+            f.pack(side="left", expand=True)
+            tk.Label(f, text=p["name"], font=font_s, fg="white", bg=COLOR_BG_CARD).pack()
+            l = tk.Label(f, text=f"{p['score']} €", font=font_s, fg=c, bg=COLOR_BG_CARD)
+            l.pack()
+            self.tv_overlay_score_labels.append(l)
+
+    def build_host_question_ui(self):
+        self.clear_host_main()
+        q = self.active_question_data
+        
+        multiplier = 2 if q.get("joker") else 1
+        effective_points = q['points'] * multiplier
+        points_display = f"{q['points']} (x2 Joker)" if multiplier == 2 else f"{q['points']}"
+        half_points = int(effective_points / 2)
+        
+        f1 = tk.Frame(self.host_main_frame, bg=COLOR_HOST_BG)
+        f1.pack(fill="x", padx=30, pady=20)
+        
+        tk.Label(f1, text=f"FRAGE ({q.get('type','mc')}) - {points_display}", fg=COLOR_ACCENT, bg=COLOR_HOST_BG, font=("Segoe UI", 18)).pack()
+        tk.Label(f1, text=q["q"], fg="white", bg=COLOR_HOST_BG, font=HOST_FONT_Q, wraplength=900).pack(pady=15)
+        
+        sol_text = q['a']
+        if q.get("type") in ["mc", "tf"]:
+            found = False
+            for opt in self.current_shuffled_opts:
+                if opt["is_correct"]:
+                    sol_text = f"{opt['display_text']} (Original: {q['a']})"
+                    found = True
+                    break
+            if not found: sol_text = f"{q['a']} (Fehler beim Matching)"
             
-            // Client ID randomisieren um Kicks zu vermeiden
-            const clientId = "jeo_client_" + Math.random().toString(16).substr(2, 8);
-            client = mqtt.connect(BROKER, { clientId: clientId });
+        tk.Label(f1, text=f"LÖSUNG: {sol_text}", fg=COLOR_SUCCESS, bg=COLOR_HOST_BG, font=HOST_FONT_A).pack(pady=5)
+        
+        tk.Button(f1, text="BUZZER FREIGEBEN (MQTT)", font=("Segoe UI", 14, "bold"), bg="#FF5722", fg="white", 
+                  command=self.unlock_buzzers).pack(pady=10)
+
+        f2 = tk.Frame(self.host_main_frame, bg=COLOR_HOST_BG)
+        f2.pack(fill="x", padx=30, pady=10)
+        
+        if q.get("type") == "free":
+            st_corr = BTN_STYLE_HOST.copy(); st_corr.update({'bg': COLOR_SUCCESS, 'activebackground': '#388E3C'})
+            st_wrong = BTN_STYLE_HOST.copy(); st_wrong.update({'bg': COLOR_ERROR, 'activebackground': '#D32F2F'})
             
-            client.on("connect", () => {
-                document.getElementById("conn-status").innerText = "Lade Spielerliste...";
+            tk.Label(f2, text="[W] oder [R] drücken", bg=COLOR_HOST_BG, fg="#888").pack()
+            tk.Button(f2, text="RICHTIG (W)", **st_corr, font=FONT_BTN, width=20, 
+                      command=lambda: self.handle_answer_evaluation(True)).pack(side="left", padx=40, expand=True)
+            
+            tk.Label(f2, text="[F] drücken", bg=COLOR_HOST_BG, fg="#888").pack()
+            tk.Button(f2, text="FALSCH (F)", **st_wrong, font=FONT_BTN, width=20, 
+                      command=lambda: self.handle_answer_evaluation(False)).pack(side="right", padx=40, expand=True)
+        else:
+            for idx, item in enumerate(self.current_shuffled_opts):
+                is_correct = item["is_correct"]
+                btn_bg = COLOR_BG_BUTTON
+                if is_correct: btn_bg = "#1B3320" 
                 
-                // Subscribe Antwort-Kanal
-                client.subscribe(`jeopardy/${roomId}/players_response`);
-                
-                // Sende Anfrage an Python
-                client.publish(`jeopardy/${roomId}/players_request`, "get");
-                
-                // Timeout Fallback falls Python nicht antwortet
-                setTimeout(() => {
-                    if(document.getElementById("screen-room").style.display !== "none") {
-                        document.getElementById("conn-status").innerText = "Keine Antwort vom Host. Ist das Spiel gestartet?";
-                    }
-                }, 3000);
-            });
+                btn = tk.Button(f2, text=item["display_text"], bg=btn_bg, fg="white", font=HOST_FONT_OPT, anchor="w",
+                                relief="flat", activebackground="#555", activeforeground="white",
+                                command=partial(self.host_mc_click_shuffled, idx))
+                btn.pack(fill="x", pady=2)
 
-            client.on("message", (topic, message) => {
-                // 1. SPIELERLISTE EMPFANGEN
-                if (topic.endsWith("players_response")) {
-                    try {
-                        const names = JSON.parse(message.toString());
-                        showNameSelection(names);
-                    } catch(e) {
-                        console.error("JSON Error", e);
-                    }
-                }
-                
-                // 2. GAME STATUS (LOCKED/UNLOCKED)
-                if (topic.endsWith("status")) {
-                    const msg = message.toString();
-                    updateBuzzerState(msg);
-                }
-            });
-            
-            client.on("error", (err) => {
-                document.getElementById("conn-status").innerText = "Verbindungsfehler!";
-                console.error(err);
-            });
-        }
-
-        function showNameSelection(names) {
-            document.getElementById("screen-room").style.display = "none";
-            document.getElementById("screen-name").style.display = "flex";
-            
-            const list = document.getElementById("nameList");
-            list.innerHTML = "";
-            
-            names.forEach((name, index) => {
-                const btn = document.createElement("button");
-                btn.className = "name-btn";
-                btn.innerText = name;
-                // Wir senden den Index + 1 an Python (da Python 0-based ist, aber wir 1-based kommunizieren wollten? 
-                // Warte, Python V41 nutzt: int(msg.payload) - 1. Also müssen wir hier 1-based senden!)
-                btn.onclick = () => joinGame(index + 1, name); 
-                list.appendChild(btn);
-            });
-        }
-
-        function joinGame(idx, name) {
-            playerNum = idx;
-            document.getElementById("screen-name").style.display = "none";
-            document.getElementById("screen-game").style.display = "flex";
-            
-            document.getElementById("playerNameDisplay").innerText = name;
-            document.getElementById("room-display").innerText = "Room: " + roomId;
-            
-            // Subscribe Game Status Kanal
-            client.subscribe(`jeopardy/${roomId}/status`);
-            
-            // Status resetten
-            updateBuzzerState("locked");
-        }
+        f3 = tk.Frame(self.host_main_frame, bg="#101010", pady=20)
+        f3.pack(fill="both", expand=True, pady=20)
+        self.host_score_entries = [] 
         
-        function updateBuzzerState(state) {
-            const btn = document.getElementById("buzzer-btn");
-            const stat = document.getElementById("status");
+        for i, p in enumerate(self.players):
+            row = tk.Frame(f3, bg="#101010")
+            row.pack(fill="x", padx=40, pady=10)
+            col = COLOR_ACCENT if i == self.current_player_idx else "#555"
             
-            if (state === "unlocked") {
-                btn.className = "unlocked";
-                btn.innerText = "BUZZER!";
-                stat.innerText = "JETZT DRÜCKEN!";
-                stat.style.color = "#00e676";
-                
-                // Kurze Vibration als Signal
-                if(navigator.vibrate) navigator.vibrate(100); 
-                
-            } else if (state === "locked") {
-                btn.className = "locked";
-                btn.innerText = "GESPERRT";
-                stat.innerText = "Warte auf Freigabe...";
-                stat.style.color = "#888";
-            }
-        }
+            is_chooser_row = (i == self.turn_starter_idx)
+            if is_chooser_row:
+                val_plus = effective_points
+                val_minus = 0 
+                lbl_plus = f"+{val_plus}"
+                lbl_minus = "-0"
+            else:
+                half_points = int(effective_points / 2)
+                val_plus = half_points
+                val_minus = -half_points 
+                lbl_plus = f"+{val_plus}"
+                lbl_minus = f"-{half_points}"
 
-        function buzz() {
-            const btn = document.getElementById("buzzer-btn");
+            key_hint = f"[{i+1}]"
+            tk.Label(row, text=f"{key_hint} {p['name']}", width=20, anchor="w", fg="white", bg="#101010", font=HOST_FONT_PLAYER).pack(side="left")
             
-            // Sende Buzz an Python
-            client.publish(`jeopardy/${roomId}/buzz`, playerNum.toString());
+            var = tk.StringVar(value=str(p["score"]))
+            ent = tk.Entry(row, textvariable=var, width=8, fg=col, bg=COLOR_INPUT_BG, font=HOST_FONT_SCORE, justify="center", insertbackground="white")
+            ent.pack(side="left")
+            ent.bind("<FocusOut>", lambda e, idx=i, v=var: self.manual_score_update(idx, v.get()))
+            ent.bind("<Return>", lambda e, idx=i, v=var: self.manual_score_update(idx, v.get()))
+            self.host_score_entries.append(var)
             
-            // Sofortiges visuelles Feedback
-            btn.className = "buzzed";
-            btn.innerText = "GEBUZZERT!";
-            document.getElementById("status").innerText = "Signal gesendet!";
+            tk.Button(row, text=lbl_plus, width=6, **BTN_STYLE_LIGHT, font=("Arial", 14, "bold"), command=partial(self.mod_score, i, val_plus)).pack(side="left", padx=15)
+            tk.Button(row, text=lbl_minus, width=6, **BTN_STYLE_LIGHT, font=("Arial", 14, "bold"), command=partial(self.mod_score, i, val_minus)).pack(side="left", padx=15)
+            tk.Button(row, text="Set Active", font=("Arial", 12, "bold"), **BTN_STYLE_LIGHT, width=12, command=partial(self.set_active_player, i)).pack(side="left", padx=30)
+
+        tk.Button(self.host_main_frame, text="WEITER / SCHLIESSEN", bg="white", fg="black", 
+                  font=("Segoe UI", 24, "bold"), height=2, cursor="hand2",
+                  command=self.close_question_ui).pack(fill="x", side="bottom", padx=40, pady=30)
+
+    # --- LOGIC METHODS ---
+    
+    def manual_score_update(self, idx, value):
+        try:
+            new_score = int(value)
+            self.players[idx]["score"] = new_score
+            if idx < len(self.tv_overlay_score_labels):
+                self.tv_overlay_score_labels[idx].config(text=f"{new_score} €")
+            self.host_window.focus() 
+        except ValueError: pass
+
+    def host_mc_click_shuffled(self, idx):
+        item = self.current_shuffled_opts[idx]
+        is_correct = item["is_correct"]
+        
+        if idx < len(self.current_q_widgets):
+            tv_btn = self.current_q_widgets[idx]
+            if is_correct:
+                tv_btn.config(bg=COLOR_SUCCESS, fg="white")
+                if hasattr(tv_btn, 'border_widget'): tv_btn.border_widget.config(bg=COLOR_SUCCESS)
+            else:
+                orig_bg = tv_btn.cget("bg")
+                orig_fg = tv_btn.cget("fg")
+                tv_btn.config(bg=COLOR_ERROR, fg="white")
+                if hasattr(tv_btn, 'border_widget'): tv_btn.border_widget.config(bg=COLOR_ERROR)
+                def reset():
+                    try:
+                        tv_btn.config(bg=orig_bg, fg=orig_fg)
+                        if hasattr(tv_btn, 'border_widget'): tv_btn.border_widget.config(bg=COLOR_BORDER_DEFAULT)
+                    except: pass
+                self.root.after(2000, reset)
+
+        self.handle_answer_evaluation(is_correct)
+
+    def handle_answer_evaluation(self, is_correct):
+        multiplier = 2 if self.active_question_data.get("joker") else 1
+        base_points = self.active_question_data["points"] * multiplier
+        half_points = int(base_points / 2)
+        
+        points_change = 0
+        is_chooser = (self.current_player_idx == self.turn_starter_idx)
+        
+        if is_correct:
+            points_change = base_points if is_chooser else half_points
+            if self.active_question_data.get("type") == "free":
+                 tk.Label(self.center_content_frame, text="RICHTIG!", font=("Segoe UI", 50, "bold"), bg=COLOR_BG_MAIN, fg=COLOR_SUCCESS).pack(pady=20)
+        else:
+            points_change = 0 if is_chooser else -half_points
+            self.trigger_buzzer_fail(None)
+
+        if points_change != 0:
+            self.mod_score(self.current_player_idx, points_change)
+
+    def check_next_buzzer(self):
+        self.buzzer_queue = [p for p in self.buzzer_queue if p[0] != self.current_player_idx]
+        self.update_sidebar_queue()
+        
+        if self.buzzer_queue:
+            next_player_idx = self.buzzer_queue[0][0]
+            self.set_active_player(next_player_idx, from_buzzer=True)
+        else:
+            self.trigger_buzzer_fail(None)
+
+    # --- LOGIC & DISPLAY (Rest) ---
+    def handle_space_reveal(self, event):
+        if not hasattr(self, 'q_overlay') or not self.q_overlay.winfo_exists(): return
+        q = self.active_question_data
+        q_type = q.get("type", "mc")
+        
+        if self.reveal_step == 0:
+            if "img" in q and IMAGES_AVAILABLE:
+                if self.is_image_loading:
+                    self.lbl_loading = tk.Label(self.center_content_frame, text="Lade Bild...", font=("Segoe UI", 20), bg=COLOR_BG_MAIN, fg="gray")
+                    self.lbl_loading.pack(pady=20, before=self.lbl_question_tv)
+                    self.check_image_ready()
+                elif self.preloaded_pil: self.show_image_on_tv(self.preloaded_pil)
             
-            if(navigator.vibrate) navigator.vibrate([50, 50, 50]);
+            if q_type == "free":
+                tk.Label(self.center_content_frame, text="FREIE ANTWORT", font=("Segoe UI", self.get_font_size(30), "bold"), 
+                         bg=COLOR_ACCENT, fg="black", padx=20, pady=5).pack(pady=(0,20), before=self.lbl_question_tv)
             
-            // Wir sperren den Button lokal, bis der Host den Status ändert
-            // Das verhindert Spamming
-            setTimeout(() => {
-               if (btn.innerText === "GEBUZZERT!") {
-                   btn.className = "locked";
-                   btn.innerText = "GESPERRT";
-               }
-            }, 1000);
-        }
-    </script>
-</body>
-</html>
+            self.lbl_question_tv.config(text=q["q"])
+            self.reveal_step += 1
+            
+            if q_type == "tf":
+                 self.reveal_all_options_at_once(self.current_shuffled_opts) 
+                 self.reveal_step = 99 
+            return
+
+        if q_type == "free" or q_type == "tf": return 
+
+        opts = self.current_shuffled_opts
+        count = len(opts)
+        use_grid = (count == 2 or count == 4)
+        
+        opt_idx = self.reveal_step - 1
+        if opt_idx < count:
+            self.create_mc_button(opts[opt_idx]["display_text"], opt_idx, count, use_grid, opts[opt_idx])
+            self.reveal_step += 1
+
+    def reveal_all_options_at_once(self, opts):
+        count = len(opts)
+        use_grid = (count == 2 or count == 4)
+        for idx, item in enumerate(opts):
+            self.create_mc_button(item["display_text"], idx, count, use_grid, item)
+
+    def create_mc_button(self, txt, idx, total_count, use_grid, shuffle_item):
+        let = txt.split(")")[0]
+        border_frame = tk.Frame(self.options_grid_frame if use_grid else self.center_content_frame, 
+                                bg=COLOR_BORDER_DEFAULT, padx=2, pady=2)
+        
+        btn = tk.Button(border_frame, text=txt, font=("Segoe UI", self.get_font_size(28)),
+                        bg=COLOR_BG_BUTTON, fg="white", anchor="center", 
+                        relief="flat", bd=0, 
+                        state="disabled", disabledforeground="white") 
+        btn.pack(fill="both", expand=True)
+        
+        if use_grid:
+            r = idx // 2
+            c = idx % 2
+            border_frame.grid(row=r, column=c, padx=15, pady=15, sticky="nsew")
+            self.options_grid_frame.grid_columnconfigure(0, weight=1)
+            self.options_grid_frame.grid_columnconfigure(1, weight=1)
+        else:
+            border_frame.pack(pady=8, fill="x", padx=100)
+            
+        btn.border_widget = border_frame 
+        self.current_q_widgets.append(btn)
+
+    def check_image_ready(self):
+        if self.is_image_loading: self.root.after(100, self.check_image_ready)
+        elif self.preloaded_pil:
+            if hasattr(self, 'lbl_loading'): self.lbl_loading.destroy()
+            self.show_image_on_tv(self.preloaded_pil)
+
+    def show_image_on_tv(self, pil_img):
+        self.current_image_ref_tv = ImageTk.PhotoImage(pil_img)
+        tk.Label(self.center_content_frame, image=self.current_image_ref_tv, bg=COLOR_BG_MAIN).pack(pady=10, before=self.lbl_question_tv)
+
+    def mod_score(self, p_idx, amount):
+        self.players[p_idx]["score"] += amount
+        if p_idx < len(self.host_score_entries): self.host_score_entries[p_idx].set(str(self.players[p_idx]["score"]))
+        if p_idx < len(self.tv_overlay_score_labels): self.tv_overlay_score_labels[p_idx].config(text=f"{self.players[p_idx]['score']} €")
+
+    def set_active_player(self, idx, from_buzzer=False):
+        self.current_player_idx = idx
+        
+        self.is_buzzer_mode = False
+        if not from_buzzer:
+            self.lock_buzzers()
+            
+        self.update_helper_active()
+        self.build_host_question_ui()
+        
+        if hasattr(self, 'lbl_tv_active_player'):
+            self.lbl_tv_active_player.config(text=f"Dran: {self.players[idx]['name']}")
+            self.lbl_tv_active_player.pack(side="right", padx=50)
+
+    def host_free_answer(self, correct, points): pass 
+
+    def trigger_buzzer_fail(self, btn=None):
+        if hasattr(self, 'lbl_tv_active_player'): self.lbl_tv_active_player.pack_forget()
+        
+        # Auto-Unlock MQTT
+        self.unlock_buzzers()
+        self.is_buzzer_mode = True
+        
+        if not self.buzzer_message_shown:
+            self.buzzer_message_shown = True
+            l = tk.Label(self.q_overlay, text="BUZZER FREI", font=("Segoe UI", 80, "bold"), bg="#FF3D00", fg="white", padx=40, pady=20)
+            l.place(relx=0.5, rely=0.5, anchor="center")
+            self.root.after(2000, l.destroy)
+
+    def close_question_ui(self):
+        if hasattr(self, 'q_overlay'): self.q_overlay.destroy()
+        c, r = self.active_question_coords
+        self.buttons[(c, r)].config(state="disabled", text="", bg=COLOR_DONE, relief="flat")
+        self.completed_questions.add((c, r))
+        
+        self.current_player_idx = (self.turn_starter_idx + 1) % len(self.players)
+        
+        self.questions_remaining -= 1
+        cats = self.game_data["rounds"][self.current_round_index]["categories"]
+        self.draw_scoreboard_tv(len(cats))
+        if self.questions_remaining <= 0: self.next_round()
+        else: self.update_host_status_idle()
+
+    def draw_scoreboard_tv(self, num_cats=5):
+        if hasattr(self, 'score_frame'): self.score_frame.destroy()
+        self.score_frame = tk.Frame(self.root, bg=COLOR_SCORE_BG, pady=15)
+        self.score_frame.grid(row=100, column=0, columnspan=num_cats, sticky="ew")
+        font_s = ("Segoe UI", self.get_font_size(22), "bold")
+        for i, p in enumerate(self.players):
+            bg = COLOR_ACCENT if i == self.current_player_idx else COLOR_SCORE_BG
+            fg = "black" if i == self.current_player_idx else "#777"
+            l = tk.Label(self.score_frame, text=f"{p['name']}:\n{p['score']} €", font=font_s, bg=bg, fg=fg, padx=20, pady=10)
+            l.pack(side="left", expand=True, fill="y", padx=5)
+
+    def next_round(self):
+        self.current_round_index += 1
+        if self.current_round_index < len(self.game_data["rounds"]):
+            messagebox.showinfo("Runde", "Board leer! Nächste Runde.")
+            self.setup_round()
+        else: self.show_end_screen()
+
+    def show_end_screen(self):
+        self.clear_window(self.root)
+        self.clear_host_main()
+        tk.Label(self.root, text="ERGEBNISSE", font=FONT_TITLE, bg=COLOR_BG_MAIN, fg=COLOR_ACCENT).pack(pady=50)
+        srt = sorted(self.players, key=lambda x: x['score'], reverse=True)
+        for i, p in enumerate(srt):
+            col = "white" if i > 0 else COLOR_ACCENT
+            tk.Label(self.root, text=f"{i+1}. {p['name']}: {p['score']} €", font=FONT_HEAD, bg=COLOR_BG_MAIN, fg=col).pack(pady=10)
+        tk.Label(self.host_main_frame, text="SPIEL VORBEI", font=FONT_HEAD, bg=COLOR_HOST_BG, fg="white").pack(pady=50)
+        tk.Button(self.host_main_frame, text="Beenden", font=FONT_BTN, **BTN_STYLE_STD, command=self.root.quit).pack()
+
+    def clear_window(self, window):
+        for w in window.winfo_children():
+            if isinstance(w, tk.Toplevel): continue
+            w.destroy()
+
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = JeopardyGame(root)
+    root.mainloop()
