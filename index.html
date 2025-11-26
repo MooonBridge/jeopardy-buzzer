@@ -20,6 +20,7 @@
         .name-list { display: flex; flex-direction: column; gap: 10px; max-height: 60vh; overflow-y: auto; width: 100%; }
         .name-btn { background: #333; color: white; text-align: left; padding: 15px 20px; font-size: 1.1rem; border: 1px solid #444; cursor: pointer; }
         .name-btn:hover { background: #444; border-color: #FFD700; }
+        .name-btn.taken { background: #222; color: #555; border-color: #333; cursor: not-allowed; pointer-events: none; }
         
         #buzzer-btn {
             width: 70vw; height: 70vw; max-width: 300px; max-height: 300px;
@@ -97,16 +98,34 @@
         </div>
         
         <div id="status">Warte auf Freigabe...</div>
+        <p style="color:#555; font-size: 0.8rem; margin-top: 20px;">(Leertaste zum Buzzern)</p>
     </div>
 
     <script>
-        // HiveMQ Cloud WebSocket Adresse
         const BROKER = "wss://8a4b97051b294cff830f708512f57d7c.s1.eu.hivemq.cloud:8884/mqtt";
-        const MQTT_USER = "jeopardy_user"; // Fest gesetzter User
+        const MQTT_USER = "jeopardy_user"; 
         
         let client;
         let roomId;
         let playerNum;
+
+        // NEU: Event Listener für Leertaste
+        document.addEventListener('keydown', function(event) {
+            if (event.code === 'Space') {
+                // Nur buzzern, wenn wir im Spiel-Screen sind
+                const gameScreen = document.getElementById("screen-game");
+                if (!gameScreen.classList.contains("hidden")) {
+                    // Verhindert Scrollen bei Leertaste
+                    event.preventDefault(); 
+                    
+                    // Checken ob Buzzer freigegeben ist (Button hat Klasse 'unlocked')
+                    const btn = document.getElementById("buzzer-btn");
+                    if (btn.classList.contains("unlocked")) {
+                        buzz();
+                    }
+                }
+            }
+        });
 
         function connectAndFetchPlayers() {
             const inputRoom = document.getElementById("roomCode");
@@ -116,17 +135,8 @@
             roomId = inputRoom.value.trim().toUpperCase();
             const password = inputPass.value.trim();
             
-            // Validierung
-            if (!roomId) {
-                inputRoom.style.borderColor = "red";
-                inputRoom.focus();
-                return;
-            }
-            if (!password) {
-                inputPass.style.borderColor = "red";
-                inputPass.focus();
-                return;
-            }
+            if (!roomId) { inputRoom.style.borderColor = "red"; return; }
+            if (!password) { inputPass.style.borderColor = "red"; return; }
 
             statusDiv.innerText = "Verbinde zu Server...";
             inputRoom.style.borderColor = "#555";
@@ -138,61 +148,55 @@
                 client = mqtt.connect(BROKER, { 
                     clientId: clientId,
                     username: MQTT_USER,
-                    password: password, // Das eingegebene Passwort nutzen
-                    connectTimeout: 5000 // 5s Timeout
+                    password: password, 
+                    connectTimeout: 5000 
                 });
             } catch(e) {
-                statusDiv.innerText = "Fehler beim Init: " + e.message;
+                statusDiv.innerText = "Fehler: " + e.message;
                 return;
             }
             
             client.on("connect", () => {
                 statusDiv.innerText = "Verbunden! Suche Raum...";
-                
-                // Subscribe auf Antwort-Kanal
                 client.subscribe(`jeopardy/${roomId}/players_response`);
-                
-                // Sende Anfrage
+                client.subscribe(`jeopardy/${roomId}/status`); 
                 client.publish(`jeopardy/${roomId}/players_request`, "get");
                 
-                // Timeout falls Raum nicht existiert (oder Python aus ist)
                 setTimeout(() => {
                     if(document.getElementById("screen-room").classList.contains("hidden") === false) {
-                        statusDiv.innerText = "Keine Antwort vom Host. Ist Python an & Code richtig?";
+                        statusDiv.innerText = "Keine Antwort. Code falsch oder Host nicht bereit.";
                     }
                 }, 4000);
             });
 
             client.on("message", (topic, message) => {
-                // 1. SPIELERLISTE EMPFANGEN -> Wechsel zu Screen 2
                 if (topic.endsWith("players_response")) {
                     try {
-                        const names = JSON.parse(message.toString());
-                        showNameSelection(names);
-                    } catch(e) {
-                        console.error("JSON Error", e);
-                    }
+                        const players = JSON.parse(message.toString());
+                        showNameSelection(players);
+                    } catch(e) { console.error(e); }
                 }
                 
-                // 2. GAME STATUS (LOCKED/UNLOCKED)
                 if (topic.endsWith("status")) {
                     const msg = message.toString();
-                    updateBuzzerState(msg);
+                    if (msg === "game_over") {
+                        alert("Der Host hat das Spiel beendet.");
+                        location.reload();
+                    } else {
+                        if (!document.getElementById("screen-game").classList.contains("hidden")) {
+                             updateBuzzerState(msg);
+                        }
+                    }
                 }
             });
             
             client.on("error", (err) => {
-                console.log(err);
-                statusDiv.innerText = "Verbindungsfehler! Passwort falsch?";
-                client.end();
-            });
-            
-            client.on("offline", () => {
-                statusDiv.innerText = "Verbindung verloren/falsch.";
+                statusDiv.innerText = "Verbindungsfehler!";
+                console.error(err);
             });
         }
 
-        function showNameSelection(names) {
+        function showNameSelection(players) {
             document.getElementById("screen-room").classList.add("hidden");
             document.getElementById("screen-name").classList.remove("hidden");
             document.getElementById("screen-name").classList.add("flex");
@@ -200,16 +204,19 @@
             const list = document.getElementById("nameList");
             list.innerHTML = "";
             
-            if(names.length === 0) {
-                list.innerHTML = "<p style='color:#888'>Keine Spieler im Python-Host angelegt.</p>";
-            }
+            if(players.length === 0) list.innerHTML = "<p style='color:#888'>Leer</p>";
 
-            names.forEach((name, index) => {
+            players.forEach((p) => {
                 const btn = document.createElement("button");
                 btn.className = "name-btn";
-                btn.innerText = name;
-                // 1-based index für Python Logik
-                btn.onclick = () => joinGame(index + 1, name); 
+                
+                if (p.taken) {
+                    btn.innerText = p.name + " (Belegt)";
+                    btn.classList.add("taken");
+                } else {
+                    btn.innerText = p.name;
+                    btn.onclick = () => joinGame(p.id, p.name); 
+                }
                 list.appendChild(btn);
             });
         }
@@ -225,10 +232,7 @@
             document.getElementById("playerNameDisplay").innerText = name;
             document.getElementById("room-display").innerText = "Room: " + roomId;
             
-            // Subscribe Game Status Kanal
-            client.subscribe(`jeopardy/${roomId}/status`);
-            
-            // Initial locked
+            client.publish(`jeopardy/${roomId}/join`, idx.toString());
             updateBuzzerState("locked");
         }
         
@@ -253,17 +257,14 @@
 
         function buzz() {
             const btn = document.getElementById("buzzer-btn");
-            // Sende Buzz
             client.publish(`jeopardy/${roomId}/buzz`, playerNum.toString());
             
-            // Visuelles Feedback sofort
             btn.className = "buzzed";
             btn.innerText = "GEBUZZERT!";
             document.getElementById("status").innerText = "Signal gesendet!";
             
             if(navigator.vibrate) navigator.vibrate([50, 50, 50]);
             
-            // Lokaler Lock um Spam zu verhindern (Server sendet eh locked, aber für Latenz gut)
             setTimeout(() => {
                if (btn.innerText === "GEBUZZERT!") {
                    btn.className = "locked";
