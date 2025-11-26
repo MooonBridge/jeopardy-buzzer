@@ -6,99 +6,57 @@
     <title>Jeopardy Buzzer</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/mqtt/4.3.7/mqtt.min.js"></script>
     <style>
+        /* STYLES UNVERÄNDERT WIE VORHER */
         body { background-color: #121212; color: white; font-family: 'Segoe UI', sans-serif; text-align: center; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; overflow: hidden; }
-        
         .setup-screen { display: flex; flex-direction: column; gap: 15px; width: 90%; max-width: 400px;}
         input, button { padding: 15px; font-size: 1.2rem; border-radius: 8px; border: none; width: 100%; box-sizing: border-box; }
         input { background: #333; color: white; border: 1px solid #555; outline: none; }
         input:focus { border-color: #FFD700; }
         button { background: #283593; color: white; font-weight: bold; cursor: pointer; transition: background 0.2s; }
         button:active { transform: scale(0.98); }
-        
         h1, h2 { margin-bottom: 10px; color: #FFD700; }
-
         .name-list { display: flex; flex-direction: column; gap: 10px; max-height: 60vh; overflow-y: auto; width: 100%; }
         .name-btn { background: #333; color: white; text-align: left; padding: 15px 20px; font-size: 1.1rem; border: 1px solid #444; cursor: pointer; }
         .name-btn:hover { background: #444; border-color: #FFD700; }
         .name-btn.taken { background: #222; color: #555; border-color: #333; cursor: not-allowed; pointer-events: none; }
-        
-        #buzzer-btn {
-            width: 70vw; height: 70vw; max-width: 300px; max-height: 300px;
-            border-radius: 50%; border: 8px solid #222; 
-            font-size: 2rem; font-weight: bold; color: #888;
-            background: #d32f2f; /* STANDARD LOCKED = ROT */
-            box-shadow: inset 0 0 20px #000;
-            transition: all 0.1s;
-            pointer-events: none; 
-            margin-top: 20px;
-            display: flex; align-items: center; justify-content: center;
-            user-select: none; -webkit-user-select: none;
-        }
-
-        .unlocked {
-            background: radial-gradient(circle, #00e676, #00c853) !important;
-            color: white !important;
-            border-color: #00c853 !important;
-            box-shadow: 0 0 40px rgba(0, 230, 118, 0.4) !important;
-            pointer-events: auto !important;
-            cursor: pointer;
-        }
-        .unlocked:active {
-            transform: scale(0.95);
-        }
-
-        .buzzed {
-            background: #555 !important; /* GRAU WENN GEDRÜCKT */
-            color: #aaa !important;
-            border-color: #777 !important;
-            box-shadow: none !important;
-        }
-        
-        .locked {
-            background: #d32f2f !important; /* ROT WENN GESPERRT */
-            color: #ffcccc !important;
-            border-color: #b71c1c !important;
-        }
-        
+        #buzzer-btn { width: 70vw; height: 70vw; max-width: 300px; max-height: 300px; border-radius: 50%; border: 8px solid #222; font-size: 2rem; font-weight: bold; color: #888; background: #d32f2f; box-shadow: inset 0 0 20px #000; transition: all 0.1s; pointer-events: none; margin-top: 20px; display: flex; align-items: center; justify-content: center; user-select: none; -webkit-user-select: none; }
+        .unlocked { background: radial-gradient(circle, #00e676, #00c853) !important; color: white !important; border-color: #00c853 !important; box-shadow: 0 0 40px rgba(0, 230, 118, 0.4) !important; pointer-events: auto !important; cursor: pointer; }
+        .unlocked:active { transform: scale(0.95); }
+        .buzzed { background: #555 !important; color: #aaa !important; border-color: #777 !important; box-shadow: none !important; }
+        .locked { background: #d32f2f !important; color: #ffcccc !important; border-color: #b71c1c !important; }
         #status { margin-top: 30px; font-size: 1.4rem; color: #888; font-weight: bold; }
         #room-display { position: absolute; top: 20px; left: 20px; font-size: 0.9rem; color: #666; }
-        
         .hidden { display: none !important; }
         .flex { display: flex !important; }
     </style>
 </head>
 <body>
 
-    <!-- 1. LOGIN SCREEN -->
+    <!-- SETUP SCREENS -->
     <div id="screen-room" class="setup-screen">
         <h1>Jeopardy Buzzer</h1>
         <p style="color:#aaa; font-size:0.9rem; margin:0;">Verbindung zum Spielserver</p>
-        
         <input type="text" id="roomCode" placeholder="Raum Code (z.B. JEO-1234)" style="text-transform: uppercase; text-align:center; font-weight:bold; letter-spacing: 1px;">
         <input type="password" id="mqttPass" placeholder="Passwort" style="text-align:center;">
-        
         <button onclick="connectAndFetchPlayers()">Beitreten</button>
         <div id="conn-status" style="color: #888; margin-top: 10px; font-size: 0.9rem;"></div>
     </div>
 
-    <!-- 2. NAME SELECT -->
     <div id="screen-name" class="setup-screen hidden">
         <h2>Wer bist du?</h2>
         <div id="nameList" class="name-list">Lade Spieler...</div>
         <button onclick="location.reload()" style="background:#444; margin-top:20px;">Zurück</button>
     </div>
 
-    <!-- 3. GAME -->
     <div id="screen-game" class="hidden" style="flex-direction: column; align-items: center; width: 100%;">
         <div id="room-display"></div>
         <h2 id="playerNameDisplay" style="font-size: 2rem; margin-top: 40px;">Spieler</h2>
-        
         <div id="buzzer-container">
             <button id="buzzer-btn" onclick="buzz()">GESPERRT</button>
         </div>
-        
         <div id="status">Warte auf Freigabe...</div>
-        <p style="color:#555; font-size: 0.8rem; margin-top: 20px;">(Leertaste zum Buzzern)</p>
+        <button onclick="location.reload()" style="background:#444; margin-top:40px; width:auto; padding: 10px 20px; font-size: 1rem;">Abmelden</button>
+        <p style="color:#555; font-size: 0.8rem; margin-top: 10px;">(Leertaste zum Buzzern)</p>
     </div>
 
     <script>
@@ -108,9 +66,9 @@
         let client;
         let roomId;
         let playerNum;
-        let isPlaying = false; // Status flag
+        let isPlaying = false;
+        let pingInterval;
 
-        // Leertaste Support
         document.addEventListener('keydown', function(event) {
             if (event.code === 'Space') {
                 const gameScreen = document.getElementById("screen-game");
@@ -136,9 +94,6 @@
             if (!password) { inputPass.style.borderColor = "red"; return; }
 
             statusDiv.innerText = "Verbinde zu Server...";
-            inputRoom.style.borderColor = "#555";
-            inputPass.style.borderColor = "#555";
-            
             const clientId = "jeo_client_" + Math.random().toString(16).substr(2, 8);
             
             try {
@@ -159,6 +114,9 @@
                 client.subscribe(`jeopardy/${roomId}/status`); 
                 client.publish(`jeopardy/${roomId}/players_request`, "get");
                 
+                // START PING LOOP
+                startPingLoop();
+                
                 setTimeout(() => {
                     if(document.getElementById("screen-room").classList.contains("hidden") === false) {
                         statusDiv.innerText = "Keine Antwort. Code falsch oder Host nicht bereit.";
@@ -167,22 +125,16 @@
             });
 
             client.on("message", (topic, message) => {
-                // 1. SPIELERLISTE (Nur verarbeiten wenn NICHT im Spiel)
                 if (topic.endsWith("players_response") && !isPlaying) {
-                    try {
-                        const players = JSON.parse(message.toString());
-                        showNameSelection(players);
-                    } catch(e) { console.error(e); }
+                    try { const players = JSON.parse(message.toString()); showNameSelection(players); } catch(e) { console.error(e); }
                 }
                 
-                // 2. GAME STATUS
                 if (topic.endsWith("status")) {
                     const msg = message.toString();
                     if (msg === "game_over") {
                         alert("Der Host hat das Spiel beendet.");
                         location.reload();
                     } else {
-                        // Nur update wenn im Game screen
                         if (isPlaying) {
                              updateBuzzerState(msg);
                         }
@@ -191,10 +143,28 @@
             });
             
             client.on("error", (err) => {
-                statusDiv.innerText = "Verbindungsfehler! Passwort prüfen.";
-                console.error(err);
+                statusDiv.innerText = "Verbindungsfehler!";
                 client.end();
             });
+        }
+        
+        function startPingLoop() {
+            // Sofort Ping
+            sendPing();
+            // Dann alle 5s
+            pingInterval = setInterval(sendPing, 5000);
+        }
+
+        function sendPing() {
+            // Nur pingen wenn playerNum gesetzt ist
+            if (client && client.connected && playerNum !== undefined) {
+                const payload = JSON.stringify({
+                    type: "ping",
+                    playerIdx: playerNum - 1,
+                    ts: Date.now()
+                });
+                client.publish(`jeopardy/${roomId}/ping`, payload);
+            }
         }
 
         function showNameSelection(players) {
@@ -210,7 +180,6 @@
             players.forEach((p) => {
                 const btn = document.createElement("button");
                 btn.className = "name-btn";
-                
                 if (p.taken) {
                     btn.innerText = p.name + " (Belegt)";
                     btn.classList.add("taken");
@@ -224,34 +193,31 @@
 
         function joinGame(idx, name) {
             playerNum = idx;
-            isPlaying = true; // Flag setzen
+            isPlaying = true;
 
             document.getElementById("screen-name").classList.add("hidden");
             document.getElementById("screen-name").classList.remove("flex");
-            
             document.getElementById("screen-game").classList.remove("hidden");
             document.getElementById("screen-game").classList.add("flex");
-            
             document.getElementById("playerNameDisplay").innerText = name;
             document.getElementById("room-display").innerText = "Room: " + roomId;
             
-            // Join Signal an Host
-            client.publish(`jeopardy/${roomId}/join`, idx.toString());
+            // Initial Ping mit ID
+            sendPing();
             
+            client.publish(`jeopardy/${roomId}/join`, idx.toString());
             updateBuzzerState("locked");
         }
         
         function updateBuzzerState(state) {
             const btn = document.getElementById("buzzer-btn");
             const stat = document.getElementById("status");
-            
             if (state === "unlocked") {
                 btn.className = "unlocked";
                 btn.innerText = "BUZZER!";
                 stat.innerText = "JETZT DRÜCKEN!";
                 stat.style.color = "#00e676";
                 if(navigator.vibrate) navigator.vibrate(100); 
-                
             } else if (state === "locked") {
                 btn.className = "locked";
                 btn.innerText = "GESPERRT";
@@ -262,17 +228,26 @@
 
         function buzz() {
             const btn = document.getElementById("buzzer-btn");
-            client.publish(`jeopardy/${roomId}/buzz`, playerNum.toString());
             
-            // Visuelles Feedback: Grau
+            // JSON BUZZ
+            const payload = JSON.stringify({
+                type: "buzz",
+                playerIdx: playerNum - 1,
+                ts: Date.now()
+            });
+            client.publish(`jeopardy/${roomId}/buzz`, payload);
+            
             btn.className = "buzzed";
             btn.innerText = "GEBUZZERT!";
             document.getElementById("status").innerText = "Signal gesendet!";
-            
             if(navigator.vibrate) navigator.vibrate([50, 50, 50]);
             
-            // Button lokal kurz "tot" machen, bis Server locked schickt
-            // Aber "buzzed" Style behalten als Feedback
+            setTimeout(() => {
+               if (btn.innerText === "GEBUZZERT!") {
+                   btn.className = "locked";
+                   btn.innerText = "GESPERRT";
+               }
+            }, 1000);
         }
     </script>
 </body>
