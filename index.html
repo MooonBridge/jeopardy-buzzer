@@ -7,118 +7,230 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/mqtt/4.3.7/mqtt.min.js"></script>
     <style>
         body { background-color: #121212; color: white; font-family: 'Segoe UI', sans-serif; text-align: center; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; overflow: hidden; }
+        
+        .setup-screen { display: flex; flex-direction: column; gap: 15px; width: 90%; max-width: 400px;}
+        input, button { padding: 15px; font-size: 1.2rem; border-radius: 8px; border: none; width: 100%; }
+        input { background: #333; color: white; border: 1px solid #555; }
+        button { background: #283593; color: white; font-weight: bold; cursor: pointer; transition: background 0.2s; }
+        button:active { transform: scale(0.98); }
+        
+        h1, h2 { margin-bottom: 10px; color: #FFD700; }
 
-        .setup-screen { display: flex; flex-direction: column; gap: 15px; }
-        input, select, button { padding: 15px; font-size: 1.2rem; border-radius: 8px; border: none; width: 80vw; max-width: 300px; }
-        button { background: #283593; color: white; font-weight: bold; cursor: pointer; }
-
+        .name-list { display: flex; flex-direction: column; gap: 10px; max-height: 60vh; overflow-y: auto; width: 100%; }
+        .name-btn { background: #333; color: white; text-align: left; padding: 15px 20px; font-size: 1.1rem; border: 1px solid #444; }
+        .name-btn:hover { background: #444; border-color: #FFD700; }
+        
         #buzzer-btn {
-            width: 80vw; height: 80vw; max-width: 300px; max-height: 300px;
-            border-radius: 50%; border: 5px solid #333;
+            width: 70vw; height: 70vw; max-width: 300px; max-height: 300px;
+            border-radius: 50%; border: 8px solid #333; 
             font-size: 2rem; font-weight: bold; color: #555;
             background: #222;
             box-shadow: inset 0 0 20px #000;
-            transition: all 0.2s;
-            pointer-events: none; /* Disabled by default */
+            transition: all 0.1s;
+            pointer-events: none; 
+            margin-top: 20px;
+            display: flex; align-items: center; justify-content: center;
+            user-select: none; -webkit-user-select: none;
         }
 
-        /* Status Klassen */
         .unlocked {
             background: radial-gradient(circle, #00e676, #00c853) !important;
             color: white !important;
             border-color: #00c853 !important;
-            box-shadow: 0 0 30px #00e676 !important;
+            box-shadow: 0 0 40px rgba(0, 230, 118, 0.4) !important;
             pointer-events: auto !important;
             cursor: pointer;
         }
+        .unlocked:active {
+            transform: scale(0.95);
+        }
+
         .buzzed {
             background: radial-gradient(circle, #ffea00, #ffd600) !important;
             color: black !important;
             border-color: #ffd600 !important;
-            transform: scale(0.95);
+            box-shadow: 0 0 40px rgba(255, 214, 0, 0.6) !important;
         }
+        
         .locked {
             background: #222 !important;
             color: #555 !important;
             border-color: #333 !important;
         }
-
-        #status { margin-top: 20px; font-size: 1.2rem; color: #888; }
+        
+        #status { margin-top: 30px; font-size: 1.4rem; color: #888; font-weight: bold; }
+        #room-display { position: absolute; top: 20px; left: 20px; font-size: 0.9rem; color: #666; }
     </style>
 </head>
 <body>
 
-    <div id="setup" class="setup-screen">
+    <!-- 1. ROOM CODE -->
+    <div id="screen-room" class="setup-screen">
         <h1>Jeopardy Buzzer</h1>
-        <input type="text" id="roomCode" placeholder="Raum Code (z.B. JEO-1234)" style="text-transform: uppercase;">
-        <select id="playerIdx">
-            <option value="1">Spieler 1</option>
-            <option value="2">Spieler 2</option>
-            <option value="3">Spieler 3</option>
-            <option value="4">Spieler 4</option>
-            <option value="5">Spieler 5</option>
-            <option value="6">Spieler 6</option>
-        </select>
-        <button onclick="connect()">Verbinden</button>
+        <p style="color:#aaa; font-size:0.9rem;">Gib den Code vom TV ein</p>
+        <input type="text" id="roomCode" placeholder="JEO-XXXX" style="text-transform: uppercase; text-align:center; font-size: 1.5rem; letter-spacing: 2px;">
+        <button onclick="connectAndFetchPlayers()">Raum suchen</button>
+        <div id="conn-status" style="color: #888; margin-top: 10px; font-size: 0.9rem;"></div>
     </div>
 
-    <div id="game" style="display: none;">
-        <button id="buzzer-btn" onclick="buzz()">GESPERRT</button>
+    <!-- 2. NAME SELECT -->
+    <div id="screen-name" class="setup-screen" style="display: none;">
+        <h2>Wer bist du?</h2>
+        <div id="nameList" class="name-list">Lade Spieler...</div>
+        <button onclick="location.reload()" style="background:#444; margin-top:20px;">Zurück</button>
+    </div>
+
+    <!-- 3. GAME -->
+    <div id="screen-game" style="display: none; flex-direction: column; align-items: center; width: 100%;">
+        <div id="room-display"></div>
+        <h2 id="playerNameDisplay" style="font-size: 2rem; margin-top: 40px;">Spieler</h2>
+        
+        <div id="buzzer-container">
+            <button id="buzzer-btn" onclick="buzz()">GESPERRT</button>
+        </div>
+        
         <div id="status">Warte auf Freigabe...</div>
     </div>
 
     <script>
+        // KORREKTE PORTS FÜR BROWSER (WebSocket)
         const BROKER = "wss://broker.hivemq.com:8000/mqtt";
+        
         let client;
         let roomId;
         let playerNum;
 
-        function connect() {
-            roomId = document.getElementById("roomCode").value.trim().toUpperCase();
-            playerNum = document.getElementById("playerIdx").value;
+        function connectAndFetchPlayers() {
+            const input = document.getElementById("roomCode");
+            roomId = input.value.trim().toUpperCase();
+            
+            if (!roomId) {
+                input.style.borderColor = "red";
+                return;
+            }
 
-            if (!roomId) return alert("Bitte Raum Code eingeben!");
-
-            document.getElementById("setup").style.display = "none";
-            document.getElementById("game").style.display = "flex";
-
-            client = mqtt.connect(BROKER);
-
+            document.getElementById("conn-status").innerText = "Verbinde zu Server...";
+            
+            // Client ID randomisieren um Kicks zu vermeiden
+            const clientId = "jeo_client_" + Math.random().toString(16).substr(2, 8);
+            client = mqtt.connect(BROKER, { clientId: clientId });
+            
             client.on("connect", () => {
-                document.getElementById("status").innerText = "Verbunden mit " + roomId;
-                // Subscribe Status
-                client.subscribe(`jeopardy/${roomId}/status`);
+                document.getElementById("conn-status").innerText = "Lade Spielerliste...";
+                
+                // Subscribe Antwort-Kanal
+                client.subscribe(`jeopardy/${roomId}/players_response`);
+                
+                // Sende Anfrage an Python
+                client.publish(`jeopardy/${roomId}/players_request`, "get");
+                
+                // Timeout Fallback falls Python nicht antwortet
+                setTimeout(() => {
+                    if(document.getElementById("screen-room").style.display !== "none") {
+                        document.getElementById("conn-status").innerText = "Keine Antwort vom Host. Ist das Spiel gestartet?";
+                    }
+                }, 3000);
             });
 
             client.on("message", (topic, message) => {
-                const msg = message.toString();
-                const btn = document.getElementById("buzzer-btn");
-
-                if (msg === "unlocked") {
-                    btn.className = "unlocked";
-                    btn.innerText = "BUZZER!";
-                    document.getElementById("status").innerText = "JETZT DRÜCKEN!";
-                    navigator.vibrate([50]);
-                } else if (msg === "locked") {
-                    btn.className = "locked";
-                    btn.innerText = "GESPERRT";
-                    document.getElementById("status").innerText = "Gesperrt";
+                // 1. SPIELERLISTE EMPFANGEN
+                if (topic.endsWith("players_response")) {
+                    try {
+                        const names = JSON.parse(message.toString());
+                        showNameSelection(names);
+                    } catch(e) {
+                        console.error("JSON Error", e);
+                    }
+                }
+                
+                // 2. GAME STATUS (LOCKED/UNLOCKED)
+                if (topic.endsWith("status")) {
+                    const msg = message.toString();
+                    updateBuzzerState(msg);
                 }
             });
+            
+            client.on("error", (err) => {
+                document.getElementById("conn-status").innerText = "Verbindungsfehler!";
+                console.error(err);
+            });
+        }
+
+        function showNameSelection(names) {
+            document.getElementById("screen-room").style.display = "none";
+            document.getElementById("screen-name").style.display = "flex";
+            
+            const list = document.getElementById("nameList");
+            list.innerHTML = "";
+            
+            names.forEach((name, index) => {
+                const btn = document.createElement("button");
+                btn.className = "name-btn";
+                btn.innerText = name;
+                // Wir senden den Index + 1 an Python (da Python 0-based ist, aber wir 1-based kommunizieren wollten? 
+                // Warte, Python V41 nutzt: int(msg.payload) - 1. Also müssen wir hier 1-based senden!)
+                btn.onclick = () => joinGame(index + 1, name); 
+                list.appendChild(btn);
+            });
+        }
+
+        function joinGame(idx, name) {
+            playerNum = idx;
+            document.getElementById("screen-name").style.display = "none";
+            document.getElementById("screen-game").style.display = "flex";
+            
+            document.getElementById("playerNameDisplay").innerText = name;
+            document.getElementById("room-display").innerText = "Room: " + roomId;
+            
+            // Subscribe Game Status Kanal
+            client.subscribe(`jeopardy/${roomId}/status`);
+            
+            // Status resetten
+            updateBuzzerState("locked");
+        }
+        
+        function updateBuzzerState(state) {
+            const btn = document.getElementById("buzzer-btn");
+            const stat = document.getElementById("status");
+            
+            if (state === "unlocked") {
+                btn.className = "unlocked";
+                btn.innerText = "BUZZER!";
+                stat.innerText = "JETZT DRÜCKEN!";
+                stat.style.color = "#00e676";
+                
+                // Kurze Vibration als Signal
+                if(navigator.vibrate) navigator.vibrate(100); 
+                
+            } else if (state === "locked") {
+                btn.className = "locked";
+                btn.innerText = "GESPERRT";
+                stat.innerText = "Warte auf Freigabe...";
+                stat.style.color = "#888";
+            }
         }
 
         function buzz() {
             const btn = document.getElementById("buzzer-btn");
-            // Sende Buzz
-            client.publish(`jeopardy/${roomId}/buzz`, playerNum);
-
-            // Visuelles Feedback
+            
+            // Sende Buzz an Python
+            client.publish(`jeopardy/${roomId}/buzz`, playerNum.toString());
+            
+            // Sofortiges visuelles Feedback
             btn.className = "buzzed";
             btn.innerText = "GEBUZZERT!";
-            navigator.vibrate([100]);
-
-            // Nach Buzz sperren wir uns selbst kurz visuell, bis Host entscheidet
-            // (Technisch wird Host eh "locked" senden wenn einer drangenommen wird)
+            document.getElementById("status").innerText = "Signal gesendet!";
+            
+            if(navigator.vibrate) navigator.vibrate([50, 50, 50]);
+            
+            // Wir sperren den Button lokal, bis der Host den Status ändert
+            // Das verhindert Spamming
+            setTimeout(() => {
+               if (btn.innerText === "GEBUZZERT!") {
+                   btn.className = "locked";
+                   btn.innerText = "GESPERRT";
+               }
+            }, 1000);
         }
     </script>
 </body>
