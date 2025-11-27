@@ -117,8 +117,8 @@
 
         function startPingLoop() {
             if (pingInterval) clearInterval(pingInterval);
-            // Sendet alle 5 Sekunden einen Ping
-            pingInterval = setInterval(sendPing, 5000); 
+            // Sendet jetzt jede 1 Sekunde (1000ms) einen Ping
+            pingInterval = setInterval(sendPing, 1000); 
             // Sendet sofort einen initialen Ping
             sendPing();
         }
