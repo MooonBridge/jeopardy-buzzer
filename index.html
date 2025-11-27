@@ -6,98 +6,245 @@
     <title>Jeopardy Buzzer</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/mqtt/4.3.7/mqtt.min.js"></script>
     <style>
-        body { background-color: #121212; color: white; font-family: 'Segoe UI', sans-serif; text-align: center; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; overflow: hidden; }
-        .setup-screen { display: flex; flex-direction: column; gap: 15px; width: 90%; max-width: 400px;}
-        input, button { padding: 15px; font-size: 1.2rem; border-radius: 8px; border: none; width: 100%; box-sizing: border-box; }
-        input { background: #333; color: white; border: 1px solid #555; outline: none; }
-        input:focus { border-color: #FFD700; }
-        button { background: #283593; color: white; font-weight: bold; cursor: pointer; transition: background 0.2s; }
-        button:active { transform: scale(0.98); }
-        h1, h2 { margin-bottom: 10px; color: #FFD700; }
-        .name-list { display: flex; flex-direction: column; gap: 10px; max-height: 60vh; overflow-y: auto; width: 100%; }
-        .name-btn { background: #333; color: white; text-align: left; padding: 15px 20px; font-size: 1.1rem; border: 1px solid #444; cursor: pointer; }
-        .name-btn:hover { background: #444; border-color: #FFD700; }
+        :root {
+            --color-bg: #0A0A0A;
+            --color-primary: #FFD700; /* Jeopardy Gold */
+            --color-secondary: #1E88E5; /* Light Blue for Buttons */
+            --color-success: #4CAF50;
+            --color-error: #F44336;
+        }
 
+        body { 
+            background-color: var(--color-bg); 
+            color: white; 
+            font-family: 'Segoe UI', sans-serif; 
+            text-align: center; 
+            display: flex; 
+            flex-direction: column; 
+            align-items: center; 
+            justify-content: center; 
+            height: 100vh; 
+            margin: 0; 
+            overflow: hidden; 
+        }
+        
+        /* === SETUP SCREEN === */
+        .setup-screen { 
+            display: flex; 
+            flex-direction: column; 
+            gap: 20px; 
+            width: 90%; 
+            max-width: 450px;
+            padding: 30px;
+            background: #181818;
+            border-radius: 12px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+        }
+        
+        input, button { 
+            padding: 18px; 
+            font-size: 1.3rem; 
+            border-radius: 10px; 
+            border: none; 
+            width: 100%; 
+            box-sizing: border-box; 
+            font-weight: bold;
+        }
+        
+        input { 
+            background: #252525; 
+            color: white; 
+            border: 2px solid #333; 
+            outline: none; 
+            transition: border-color 0.2s;
+        }
+        
+        input:focus { 
+            border-color: var(--color-primary); 
+        }
+        
+        button { 
+            background: var(--color-secondary); 
+            color: white; 
+            cursor: pointer; 
+            transition: all 0.2s; 
+            box-shadow: 0 4px 0 var(--color-secondary);
+            transform: translateY(0);
+        }
+        
+        button:active { 
+            transform: translateY(2px);
+            box-shadow: 0 2px 0 var(--color-secondary);
+        }
+        
+        h1 { margin: 0 0 15px 0; color: var(--color-primary); font-size: 2.5rem; }
+        h2 { margin: 0; color: white; font-size: 1.8rem; }
+        .name-list { 
+            display: flex; 
+            flex-direction: column; 
+            gap: 10px; 
+            max-height: 50vh; 
+            overflow-y: auto; 
+            width: 100%; 
+            padding-right: 5px;
+        }
+        .name-btn { 
+            background: #2D2D2D; 
+            color: white; 
+            text-align: left; 
+            padding: 15px 20px; 
+            font-size: 1.2rem; 
+            border: 1px solid #444; 
+            box-shadow: none;
+            cursor: pointer; 
+        }
+        .name-btn:hover { 
+            background: #3A3A3A; 
+            border-color: var(--color-primary);
+        }
+        .name-btn:active {
+            transform: none;
+            box-shadow: none;
+        }
+
+        /* === GAME SCREEN === */
         #buzzer-btn {
-            width: 70vw; height: 70vw; max-width: 300px; max-height: 300px;
-            border-radius: 50%; border: 8px solid #222;
-            font-size: 2rem; font-weight: bold; color: #888;
-            background: #d32f2f;
-            box-shadow: inset 0 0 20px #000;
-            transition: all 0.1s;
+            width: 80vw; height: 80vw; max-width: 350px; max-height: 350px;
+            border-radius: 50%; 
+            border: 12px solid #222;
+            font-size: 2.5rem; 
+            font-weight: 900; 
+            color: #DDD;
+            background: #A00;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.6), inset 0 0 40px rgba(0,0,0,0.8);
+            transition: all 0.2s ease-out;
             pointer-events: none;
-            margin-top: 20px;
+            margin-top: 40px;
             display: flex; align-items: center; justify-content: center;
             user-select: none; -webkit-user-select: none;
+            line-height: 1;
         }
-
+        
+        /* UNLOCKED: Ready to buzz */
         .unlocked {
-            background: radial-gradient(circle, #00e676, #00c853) !important;
+            background: linear-gradient(135deg, #00C853, #009624) !important;
             color: white !important;
-            border-color: #00c853 !important;
-            box-shadow: 0 0 40px rgba(0, 230, 118, 0.4) !important;
+            border-color: #008020 !important;
+            box-shadow: 0 10px 50px var(--color-success), inset 0 0 20px rgba(255, 255, 255, 0.4) !important;
             pointer-events: auto !important;
             cursor: pointer;
+            transform: scale(1.05); /* Slight "breathing" effect */
         }
-        .unlocked:active { transform: scale(0.95); }
-
+        .unlocked:active { 
+            transform: scale(0.95); /* Press-down animation */
+            box-shadow: 0 0 20px var(--color-success), inset 0 0 40px rgba(0,0,0,0.6);
+        }
+        
+        /* BUZZED: Pressed once */
         .buzzed {
-            background: #555 !important;
-            color: #aaa !important;
-            border-color: #777 !important;
-            box-shadow: none !important;
+            background: #444 !important;
+            color: #AAA !important;
+            border-color: #555 !important;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.5) !important;
+            transform: scale(1);
         }
 
+        /* LOCKED: Initial state or player excluded */
         .locked {
-            background: #d32f2f !important;
-            color: #ffcccc !important;
-            border-color: #b71c1c !important;
+            background: linear-gradient(135deg, #FF5555, #D00) !important;
+            color: #FFDDDD !important;
+            border-color: #A00 !important;
+            box-shadow: 0 5px 20px rgba(0,0,0,0.5), inset 0 0 30px rgba(0,0,0,0.6);
+            transform: scale(1);
         }
 
-        #status { margin-top: 30px; font-size: 1.4rem; color: #888; font-weight: bold; }
-        #room-display { position: absolute; top: 20px; left: 20px; font-size: 0.9rem; color: #666; }
+        #status { 
+            margin-top: 30px; 
+            font-size: 1.6rem; 
+            font-weight: bold; 
+            text-shadow: 0 1px 2px rgba(0,0,0,0.5);
+            min-height: 30px; /* To prevent CLS */
+        }
+        
+        #playerNameDisplay { 
+            font-size: 2.2rem; 
+            margin-top: 40px; 
+            color: var(--color-primary); 
+            font-weight: 900;
+        }
+
+        #room-display { 
+            position: absolute; 
+            top: 20px; left: 20px; 
+            font-size: 0.9rem; 
+            color: #666; 
+        }
+        
         .hidden { display: none !important; }
         .flex { display: flex !important; }
+        
+        /* Back Button Style */
+        .back-btn {
+            background: #333; 
+            border-radius: 50%; 
+            width: 45px; 
+            height: 45px; 
+            padding: 0;
+            font-size: 1.5rem;
+            color: white;
+            box-shadow: 0 3px 0 #111;
+        }
+        .back-btn:active {
+            transform: translateY(1px);
+            box-shadow: 0 2px 0 #111;
+        }
     </style>
 </head>
 <body>
 
     <div id="screen-room" class="setup-screen">
-        <h1>Jeopardy Buzzer</h1>
-        <input type="text" id="roomCode" placeholder="Raum Code" style="text-transform: uppercase; text-align:center;">
-        <input type="password" id="mqttPass" placeholder="Passwort" style="text-align:center;">
-        <button onclick="connectAndFetchPlayers()">Beitreten</button>
-        <div id="conn-status" style="color: #888; margin-top: 10px; font-size: 0.9rem;"></div>
+        <h1>JEOPARDY! BUZZER</h1>
+        <input type="text" id="roomCode" placeholder="Raum Code" maxlength="8" style="text-transform: uppercase; text-align:center;">
+        <!-- NEUES PASSWORT-FELD HINZUGEFÜGT -->
+        <input type="password" id="mqttPass" placeholder="MQTT Passwort" style="text-align:center;">
+        <button onclick="connectAndFetchPlayers()">BEITRETEN</button>
+        <div id="conn-status" style="color: #888; margin-top: 10px; font-size: 1rem; font-weight: normal;"></div>
     </div>
 
     <div id="screen-name" class="setup-screen hidden">
-        <div style="display: flex; align-items: center; margin-bottom: 10px;">
-             <button onclick="location.reload()" style="width: 40px; height: 40px; padding: 0; background: #333; border-radius: 50%; font-size: 1.2rem;">◄</button>
-             <h2 style="margin: 0 0 0 20px;">Wer bist du?</h2>
+        <div style="display: flex; align-items: center; margin-bottom: 10px; width: 100%;">
+             <button onclick="location.reload()" class="back-btn">◄</button>
+             <h2 style="margin-left: 15px;">Wähle dein Team:</h2>
         </div>
         <div id="nameList" class="name-list"></div>
     </div>
 
     <div id="screen-game" class="hidden" style="flex-direction: column; align-items: center; width: 100%;">
         <div id="room-display"></div>
-        <h2 id="playerNameDisplay" style="font-size: 2rem; margin-top: 40px;">Spieler</h2>
+        <h2 id="playerNameDisplay">Spieler</h2>
         <div id="buzzer-container">
             <button id="buzzer-btn" onclick="buzz()">GESPERRT</button>
         </div>
-        <div id="status">Warte...</div>
-        <button onclick="leaveGame()" style="background:#444; margin-top:40px; width:auto; padding: 10px 20px;">Abmelden</button>
+        <div id="status" style="color: #666;">Warte auf Spielstart...</div>
+        <button onclick="leaveGame()" style="background:#444; margin-top:50px; width:200px; padding: 15px 20px; box-shadow: 0 3px 0 #222;">ABMELDEN</button>
     </div>
 
     <script>
+        // --- KONFIGURATION (MUSS GLEICH BLEIBEN WIE IM HOST) ---
         const BROKER = "wss://8a4b97051b294cff830f708512f57d7c.s1.eu.hivemq.cloud:8884/mqtt";
         const MQTT_USER = "jeopardy_user";
+        
         let client, roomId, playerNum, isPlaying = false;
         let pingInterval = null;
-        let currentRtt = 0; // Speichert die neueste gemessene RTT
+        let currentRtt = 0; 
+        
+        // --- EVENT HANDLER ---
 
         document.addEventListener('keydown', (e) => {
+            // Spacebar als Buzzer
             if (e.code === 'Space' && !document.getElementById("screen-game").classList.contains("hidden")) {
-                e.preventDefault(); const b = document.getElementById("buzzer-btn");
+                e.preventDefault(); 
+                const b = document.getElementById("buzzer-btn");
                 if (b.classList.contains("unlocked")) buzz();
             }
         });
@@ -108,18 +255,19 @@
         });
 
         function leaveGame() {
-            if (confirm("Abmelden?")) {
+            if (confirm("Möchtest du das Spiel wirklich verlassen?")) {
                 if (client?.connected) client.publish(`jeopardy/${roomId}/leave`, playerNum.toString());
                 if (pingInterval) clearInterval(pingInterval);
                 location.reload();
             }
         }
 
+        // --- PING / MQTT LOGIC ---
+        
         function startPingLoop() {
             if (pingInterval) clearInterval(pingInterval);
             // Sendet jetzt jede 1 Sekunde (1000ms) einen Ping
             pingInterval = setInterval(sendPing, 1000); 
-            // Sendet sofort einen initialen Ping
             sendPing();
         }
         
@@ -137,44 +285,63 @@
 
         function connectAndFetchPlayers() {
             roomId = document.getElementById("roomCode").value.trim().toUpperCase();
-            const pass = document.getElementById("mqttPass").value.trim();
-            if(!roomId || !pass) return;
-            document.getElementById("conn-status").innerText = "Verbinde...";
+            // Lese das Passwort aus dem neuen Eingabefeld
+            const pass = document.getElementById("mqttPass").value.trim(); 
+            
+            if(!roomId || !pass) {
+                document.getElementById("conn-status").innerText = "Raum-Code und Passwort eingeben.";
+                return;
+            }
+            document.getElementById("conn-status").innerText = "Verbinde mit MQTT-Broker...";
             const clientId = "jeo_" + Math.random().toString(16).substr(2, 8);
-            try { client = mqtt.connect(BROKER, { clientId, username: MQTT_USER, password: pass, connectTimeout: 5000 }); } catch(e) { return; }
+            
+            try { 
+                // Verwende das vom Benutzer eingegebene Passwort
+                client = mqtt.connect(BROKER, { clientId, username: MQTT_USER, password: pass, connectTimeout: 5000 }); 
+            } catch(e) { 
+                document.getElementById("conn-status").innerText = "Kritischer Verbindungsfehler.";
+                return; 
+            }
 
             client.on("connect", () => {
                 client.subscribe(`jeopardy/${roomId}/#`);
                 client.publish(`jeopardy/${roomId}/players_request`, "get");
-                document.getElementById("conn-status").innerText = "Verbunden. Lade Spieler...";
+                document.getElementById("conn-status").innerText = "Verbunden. Lade Spielerliste vom Host...";
                 setTimeout(() => {
                     if(!document.getElementById("screen-room").classList.contains("hidden") && document.getElementById("conn-status").innerText.includes("Lade Spieler"))
-                        document.getElementById("conn-status").innerText = "Keine Spieler-Antwort vom Host.";
+                        document.getElementById("conn-status").innerText = "Keine Antwort vom Host (Raum existiert?).";
                 }, 4000);
             });
 
             client.on("message", (topic, message) => {
                 const msg = message.toString();
+                
                 if (topic.endsWith("players_response") && !isPlaying) {
                     try { const players = JSON.parse(msg); showNameSelection(players); } catch(e) {}
                 }
+                
                 if (topic.endsWith("status_json") && isPlaying) updateBuzzerStateJSON(JSON.parse(msg));
+                
                 if (topic.endsWith("status") && msg === "game_over") { alert("Spiel beendet"); location.reload(); }
                 
-                // PONG HANDLING
+                // PONG HANDLING (RTT Messung)
                 if (topic.endsWith("pong") && isPlaying) {
                     try {
                         const data = JSON.parse(msg);
-                        // Überprüfe, ob es der PONG zu einem Ping war, der den client_send_ts gesendet hat
                         if (data.client_send_ts) {
-                            // Berechne RTT (Round Trip Time: Sendezeit - Empfangszeit)
                             currentRtt = Date.now() - data.client_send_ts;
                         }
                     } catch(e) {}
                 }
             });
-            client.on("error", (e) => { document.getElementById("conn-status").innerText = "Verbindungsfehler!"; client.end(); });
+            
+            client.on("error", (e) => { 
+                document.getElementById("conn-status").innerText = "Verbindungsfehler! Prüfe Code/Passwort."; 
+                client.end(); 
+            });
         }
+
+        // --- UI STATE TRANSITIONS ---
 
         function showNameSelection(players) {
             document.getElementById("screen-room").classList.add("hidden");
@@ -182,10 +349,9 @@
             document.getElementById("screen-name").classList.add("flex");
             const list = document.getElementById("nameList"); list.innerHTML = "";
 
-            // Filter: Nur Spieler, die NICHT 'taken' sind
             const available = players.filter(p => !p.taken);
 
-            if(available.length === 0) list.innerHTML = "<p style='color:#888'>Alle belegt.</p>";
+            if(available.length === 0) list.innerHTML = "<p style='color:#888; margin: 20px;'>Alle Plätze sind belegt oder der Host hat noch nicht gestartet.</p>";
 
             available.forEach((p) => {
                 const btn = document.createElement("button");
@@ -206,42 +372,62 @@
             document.getElementById("room-display").innerText = "Room: " + roomId;
             client.publish(`jeopardy/${roomId}/join`, idx.toString());
             updateBuzzerStateJSON({state: "locked"});
-            startPingLoop(); // Starte den Ping-Loop, sobald der Spieler beigetreten ist
+            startPingLoop(); 
         }
 
         function updateBuzzerStateJSON(data) {
             const btn = document.getElementById("buzzer-btn");
             const stat = document.getElementById("status");
+            
+            // Setzt die Farbe des Status-Textes zurück
+            stat.style.color = '#FFF'; 
+
             if (data.state === "unlocked") {
                 if (data.excluded_list && data.excluded_list.includes(playerNum - 1)) {
+                     // Locked due to incorrect answer
                      btn.className = "locked";
                      btn.innerText = "GESPERRT";
                      stat.innerText = "Bereits geantwortet"; 
-                     stat.style.color = "#FF5555"; 
+                     stat.style.color = var(--color-error); 
                 } else {
+                    // Unlocked
                     btn.className = "unlocked";
                     btn.innerText = "BUZZER!";
                     stat.innerText = "JETZT DRÜCKEN!";
-                    stat.style.color = "#00e676";
+                    stat.style.color = var(--color-success);
                     if(navigator.vibrate) navigator.vibrate(100);
                 }
             } else {
+                // Locked by Host
                 btn.className = "locked";
                 btn.innerText = "GESPERRT";
-                stat.innerText = "Warte...";
+                stat.innerText = "Warte auf die Frage...";
                 stat.style.color = "#888";
             }
         }
 
         function buzz() {
             const btn = document.getElementById("buzzer-btn");
-            // Sende den Client-Timestamp mit, um die Latenz zu korrigieren
+            if (!btn.classList.contains('unlocked')) return; // Doppelte Sicherheit
+            
             client.publish(`jeopardy/${roomId}/buzz`, JSON.stringify({ type: "buzz", playerIdx: playerNum - 1, ts: Date.now() })); 
+            
             btn.className = "buzzed";
             btn.innerText = "GEBUZZERT!";
-            document.getElementById("status").innerText = "Signal gesendet!";
+            document.getElementById("status").innerText = "Signal gesendet! Warte auf Host...";
+            document.getElementById("status").style.color = "#AAA";
+
             if(navigator.vibrate) navigator.vibrate([50,50,50]);
-            setTimeout(() => { if(btn.innerText==="GEBUZZERT!") { btn.className="locked"; btn.innerText="GESPERRT"; } }, 1000);
+            
+            // Setzt den Buzzer nach 1 Sekunde zurück auf GESPERRT (visuell), 
+            // falls der Host-Status_JSON nicht schneller kommt.
+            setTimeout(() => { 
+                if(btn.innerText==="GEBUZZERT!") { 
+                    btn.className="locked"; 
+                    btn.innerText="GESPERRT"; 
+                    document.getElementById("status").innerText = "Warte auf Host-Entscheidung...";
+                } 
+            }, 1000);
         }
     </script>
 </body>
