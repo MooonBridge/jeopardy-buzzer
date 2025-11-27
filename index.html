@@ -92,6 +92,8 @@
         const BROKER = "wss://8a4b97051b294cff830f708512f57d7c.s1.eu.hivemq.cloud:8884/mqtt";
         const MQTT_USER = "jeopardy_user";
         let client, roomId, playerNum, isPlaying = false;
+        let pingInterval = null;
+        let lastPingSentTime = 0;
 
         document.addEventListener('keydown', (e) => {
             if (e.code === 'Space' && !document.getElementById("screen-game").classList.contains("hidden")) {
@@ -100,13 +102,37 @@
             }
         });
 
-        window.addEventListener('pagehide', () => { if (isPlaying && client?.connected) client.publish(`jeopardy/${roomId}/leave`, playerNum.toString()); });
+        window.addEventListener('pagehide', () => { 
+            if (isPlaying && client?.connected) client.publish(`jeopardy/${roomId}/leave`, playerNum.toString());
+            if (pingInterval) clearInterval(pingInterval); 
+        });
 
         function leaveGame() {
             if (confirm("Abmelden?")) {
                 if (client?.connected) client.publish(`jeopardy/${roomId}/leave`, playerNum.toString());
+                if (pingInterval) clearInterval(pingInterval);
                 location.reload();
             }
+        }
+
+        function startPingLoop() {
+            if (pingInterval) clearInterval(pingInterval);
+            // Sendet alle 5 Sekunden einen Ping
+            pingInterval = setInterval(sendPing, 5000); 
+            // Sendet sofort einen initialen Ping
+            sendPing();
+        }
+        
+        function sendPing() {
+            if (!client?.connected || !isPlaying) return;
+            lastPingSentTime = Date.now();
+            const payload = JSON.stringify({ 
+                type: "ping", 
+                playerIdx: playerNum - 1, 
+                ts: lastPingSentTime, // Client Timestamp
+                last_rtt: 0 // Placeholder, wird im Host überschrieben
+            });
+            client.publish(`jeopardy/${roomId}/ping`, payload);
         }
 
         function connectAndFetchPlayers() {
@@ -120,18 +146,38 @@
             client.on("connect", () => {
                 client.subscribe(`jeopardy/${roomId}/#`);
                 client.publish(`jeopardy/${roomId}/players_request`, "get");
+                document.getElementById("conn-status").innerText = "Verbunden. Lade Spieler...";
                 setTimeout(() => {
-                    if(!document.getElementById("screen-room").classList.contains("hidden"))
-                        document.getElementById("conn-status").innerText = "Keine Antwort.";
+                    if(!document.getElementById("screen-room").classList.contains("hidden") && document.getElementById("conn-status").innerText.includes("Lade Spieler"))
+                        document.getElementById("conn-status").innerText = "Keine Spieler-Antwort vom Host.";
                 }, 4000);
             });
 
             client.on("message", (topic, message) => {
+                const msg = message.toString();
                 if (topic.endsWith("players_response") && !isPlaying) {
-                    try { const players = JSON.parse(message.toString()); showNameSelection(players); } catch(e) {}
+                    try { const players = JSON.parse(msg); showNameSelection(players); } catch(e) {}
                 }
-                if (topic.endsWith("status_json") && isPlaying) updateBuzzerStateJSON(JSON.parse(message.toString()));
-                if (topic.endsWith("status") && message.toString() === "game_over") { alert("Spiel beendet"); location.reload(); }
+                if (topic.endsWith("status_json") && isPlaying) updateBuzzerStateJSON(JSON.parse(msg));
+                if (topic.endsWith("status") && msg === "game_over") { alert("Spiel beendet"); location.reload(); }
+                
+                // PONG HANDLING
+                if (topic.endsWith("pong") && isPlaying) {
+                    try {
+                        const data = JSON.parse(msg);
+                        // Berechne RTT (Round Trip Time)
+                        const rtt = Date.now() - data.ts;
+                        
+                        // Sende den Ping mit der gemessenen RTT zurück
+                        const payload = JSON.stringify({ 
+                            type: "ping", 
+                            playerIdx: playerNum - 1, 
+                            ts: Date.now(),
+                            last_rtt: rtt // WICHTIG: Sende die RTT zum Host
+                        });
+                        client.publish(`jeopardy/${roomId}/ping`, payload);
+                    } catch(e) {}
+                }
             });
             client.on("error", (e) => { document.getElementById("conn-status").innerText = "Verbindungsfehler!"; client.end(); });
         }
@@ -166,6 +212,7 @@
             document.getElementById("room-display").innerText = "Room: " + roomId;
             client.publish(`jeopardy/${roomId}/join`, idx.toString());
             updateBuzzerStateJSON({state: "locked"});
+            startPingLoop(); // Starte den Ping-Loop, sobald der Spieler beigetreten ist
         }
 
         function updateBuzzerStateJSON(data) {
@@ -175,8 +222,8 @@
                 if (data.excluded_list && data.excluded_list.includes(playerNum - 1)) {
                      btn.className = "locked";
                      btn.innerText = "GESPERRT";
-                     stat.innerText = "Bereits geantwortet"; // Changed Text
-                     stat.style.color = "#FF5555"; // Lighter red
+                     stat.innerText = "Bereits geantwortet"; 
+                     stat.style.color = "#FF5555"; 
                 } else {
                     btn.className = "unlocked";
                     btn.innerText = "BUZZER!";
@@ -194,7 +241,8 @@
 
         function buzz() {
             const btn = document.getElementById("buzzer-btn");
-            client.publish(`jeopardy/${roomId}/buzz`, JSON.stringify({ type: "buzz", playerIdx: playerNum - 1, ts: Date.now() }));
+            // Sende den Client-Timestamp mit, um die Latenz zu korrigieren
+            client.publish(`jeopardy/${roomId}/buzz`, JSON.stringify({ type: "buzz", playerIdx: playerNum - 1, ts: Date.now() })); 
             btn.className = "buzzed";
             btn.innerText = "GEBUZZERT!";
             document.getElementById("status").innerText = "Signal gesendet!";
