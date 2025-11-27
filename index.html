@@ -93,7 +93,7 @@
         const MQTT_USER = "jeopardy_user";
         let client, roomId, playerNum, isPlaying = false;
         let pingInterval = null;
-        let lastPingSentTime = 0;
+        let currentRtt = 0; // Speichert die neueste gemessene RTT
 
         document.addEventListener('keydown', (e) => {
             if (e.code === 'Space' && !document.getElementById("screen-game").classList.contains("hidden")) {
@@ -125,12 +125,12 @@
         
         function sendPing() {
             if (!client?.connected || !isPlaying) return;
-            lastPingSentTime = Date.now();
             const payload = JSON.stringify({ 
                 type: "ping", 
                 playerIdx: playerNum - 1, 
-                ts: lastPingSentTime, // Client Timestamp
-                last_rtt: 0 // Placeholder, wird im Host überschrieben
+                ts: Date.now(), // Client Timestamp für Offset-Korrektur
+                client_send_ts: Date.now(), // Timestamp für RTT-Messung
+                last_rtt: currentRtt // Sende die zuletzt gemessene RTT
             });
             client.publish(`jeopardy/${roomId}/ping`, payload);
         }
@@ -165,17 +165,11 @@
                 if (topic.endsWith("pong") && isPlaying) {
                     try {
                         const data = JSON.parse(msg);
-                        // Berechne RTT (Round Trip Time)
-                        const rtt = Date.now() - data.ts;
-                        
-                        // Sende den Ping mit der gemessenen RTT zurück
-                        const payload = JSON.stringify({ 
-                            type: "ping", 
-                            playerIdx: playerNum - 1, 
-                            ts: Date.now(),
-                            last_rtt: rtt // WICHTIG: Sende die RTT zum Host
-                        });
-                        client.publish(`jeopardy/${roomId}/ping`, payload);
+                        // Überprüfe, ob es der PONG zu einem Ping war, der den client_send_ts gesendet hat
+                        if (data.client_send_ts) {
+                            // Berechne RTT (Round Trip Time: Sendezeit - Empfangszeit)
+                            currentRtt = Date.now() - data.client_send_ts;
+                        }
                     } catch(e) {}
                 }
             });
