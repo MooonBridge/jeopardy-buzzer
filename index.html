@@ -9,10 +9,13 @@
         :root {
             --bg-color: #0a0f1d;
             --card-color: #131b2e;
-            --accent-color: #ff9f1c;
+            --accent-color: #ff9f1c; /* Orange */
             --text-color: #ffffff;
-            --success-color: #2ec4b6;
-            --error-color: #e71d36;
+            --success-color: #2ec4b6; /* Green */
+            --error-color: #e71d36;   /* Red */
+            --active-color: #eab308;  /* Yellow */
+            --queue-color: #eab308;   /* Yellow */
+            --disabled-color: #5a6b85; /* Gray */
         }
 
         body {
@@ -31,118 +34,78 @@
         }
 
         /* Screens */
-        .screen {
-            width: 100%;
-            height: 100%;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            transition: opacity 0.3s;
-        }
+        .screen { width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; transition: opacity 0.3s; }
         .hidden { display: none !important; }
 
         /* Setup Box */
         .setup-box {
-            background: var(--card-color);
-            padding: 30px;
-            border-radius: 20px;
-            width: 85%;
-            max-width: 350px;
-            display: flex;
-            flex-direction: column;
-            gap: 15px;
-            box-shadow: 0 10px 40px rgba(0,0,0,0.6);
-            border: 1px solid #2a3b55;
+            background: var(--card-color); padding: 30px; border-radius: 20px; width: 85%; max-width: 350px;
+            display: flex; flex-direction: column; gap: 15px; box-shadow: 0 10px 40px rgba(0,0,0,0.6); border: 1px solid #2a3b55;
         }
 
         input {
-            background: #0f1623;
-            color: white;
-            border: 2px solid #2a3b55;
-            padding: 15px;
-            font-size: 1.2rem;
-            border-radius: 10px;
-            text-align: center;
-            text-transform: uppercase;
-            outline: none;
+            background: #0f1623; color: white; border: 2px solid #2a3b55; padding: 15px; font-size: 1.2rem;
+            border-radius: 10px; text-align: center; outline: none;
         }
         input:focus { border-color: var(--accent-color); }
 
         button.action-btn {
-            background: var(--accent-color);
-            color: #000;
-            border: none;
-            padding: 15px;
-            font-size: 1.1rem;
-            font-weight: 800;
-            border-radius: 10px;
-            cursor: pointer;
-            text-transform: uppercase;
-            letter-spacing: 1px;
+            background: var(--accent-color); color: #000; border: none; padding: 15px; font-size: 1.1rem;
+            font-weight: 800; border-radius: 10px; cursor: pointer; text-transform: uppercase; letter-spacing: 1px;
             transition: transform 0.1s;
         }
         button.action-btn:active { transform: scale(0.98); }
 
         /* Buzzer Button */
         #buzzer-btn {
-            width: 70vw; height: 70vw;
-            max-width: 320px; max-height: 320px;
-            border-radius: 50%;
-            border: 10px solid #1a2639;
-            font-size: 2.5rem;
-            font-weight: 900;
-            color: rgba(255,255,255,0.9);
-            background: #2a3b55;
-            box-shadow: 0 20px 50px rgba(0,0,0,0.5);
-            display: flex; align-items: center; justify-content: center;
-            margin: 30px 0;
-            user-select: none;
-            transition: all 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            width: 70vw; height: 70vw; max-width: 320px; max-height: 320px; border-radius: 50%;
+            border: 10px solid #1a2639; font-size: 2.5rem; font-weight: 900; color: rgba(255,255,255,0.9);
+            background: #2a3b55; box-shadow: 0 20px 50px rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center;
+            margin: 30px 0; user-select: none; transition: all 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
             text-shadow: 0 2px 4px rgba(0,0,0,0.5);
         }
 
         /* States */
-        .b-locked { 
-            background: #2a3b55 !important; 
-            color: #5a6b85 !important;
-            transform: scale(0.95);
-            box-shadow: inset 0 0 20px rgba(0,0,0,0.5) !important;
-        }
+        /* Locked (Default) */
+        .b-locked { background: #2a3b55 !important; color: #5a6b85 !important; transform: scale(0.95); box-shadow: inset 0 0 20px rgba(0,0,0,0.5) !important; }
+        
+        /* Unlocked (Ready to Buzz) - Green */
         .b-unlocked { 
-            background: linear-gradient(145deg, #2ec4b6, #20a094) !important; 
-            border-color: #2ec4b6 !important;
-            box-shadow: 0 0 40px rgba(46, 196, 182, 0.4) !important;
-            cursor: pointer;
-            transform: scale(1.05);
+            background: linear-gradient(145deg, #2ec4b6, #20a094) !important; border-color: #2ec4b6 !important;
+            box-shadow: 0 0 40px rgba(46, 196, 182, 0.4) !important; cursor: pointer; transform: scale(1.05);
         }
         .b-unlocked:active { transform: scale(0.95); }
         
-        .b-buzzed { 
-            background: var(--accent-color) !important; 
-            border-color: #e08e1a !important; 
-            color: #000 !important; 
-            text-shadow: none !important;
-            transform: scale(1.0);
+        /* Queued - Yellow/Orange */
+        .b-queued { 
+            background: var(--queue-color) !important; border-color: #ca8a04 !important; color: #000 !important; text-shadow: none !important;
+            transform: scale(1.0); box-shadow: 0 0 20px rgba(234, 179, 8, 0.4) !important;
+        }
+
+        /* Active (My Turn) - Yellow/Gold */
+        .b-active {
+            background: var(--active-color) !important; 
+            border-color: #ca8a04 !important; 
+            color: #000 !important;
+            transform: scale(1.1); 
+            box-shadow: 0 0 50px rgba(234, 179, 8, 0.6) !important;
+        }
+
+        /* Answered Wrong / Excluded - Red/Gray */
+        .b-excluded {
+            background: #3f1515 !important;
+            border-color: #5c1818 !important;
+            color: #ff8888 !important;
+            cursor: not-allowed;
+            transform: scale(0.95);
         }
 
         /* Top Bar */
         .info-bar {
-            position: absolute; top: 0; left: 0; right: 0;
-            padding: 15px 20px;
-            display: flex; justify-content: space-between;
-            align-items: center;
-            font-size: 0.85rem; color: #5a6b85;
-            background: #0a0f1d;
-            border-bottom: 1px solid #1a2639;
+            position: absolute; top: 0; left: 0; right: 0; padding: 15px 20px; display: flex; justify-content: space-between; align-items: center;
+            font-size: 0.85rem; color: #5a6b85; background: #0a0f1d; border-bottom: 1px solid #1a2639;
         }
-        .ping-badge {
-            font-family: monospace;
-            background: #131b2e;
-            padding: 4px 8px;
-            border-radius: 4px;
-            border: 1px solid #2a3b55;
-        }
+        .ping-badge { font-family: monospace; background: #131b2e; padding: 4px 8px; border-radius: 4px; border: 1px solid #2a3b55; }
 
         .name-list { display: flex; flex-direction: column; gap: 8px; width: 100%; max-height: 50vh; overflow-y: auto; }
         .name-btn {
@@ -157,18 +120,16 @@
 </head>
 <body>
 
-    <!-- LOGIN -->
     <div id="screen-login" class="screen">
         <h1>JEOPARDY!</h1>
         <div class="setup-box">
-            <input type="text" id="roomCode" placeholder="ROOM CODE" maxlength="8">
-            <input type="password" id="mqttPass" placeholder="PASSWORD">
+            <input type="text" id="roomCode" placeholder="ROOM CODE" maxlength="8" autocapitalize="characters">
+            <input type="password" id="mqttPass" placeholder="PASSWORD" autocapitalize="off" autocomplete="off" autocorrect="off">
             <button class="action-btn" onclick="connectMQTT()">JOIN GAME</button>
             <div id="status-msg" style="color: #5a6b85; font-size: 0.9rem;">Ready</div>
         </div>
     </div>
 
-    <!-- SELECTION -->
     <div id="screen-select" class="screen hidden">
         <h2 style="color:#fff; margin-bottom:20px;">SELECT TEAM</h2>
         <div class="setup-box">
@@ -177,7 +138,6 @@
         </div>
     </div>
 
-    <!-- GAME -->
     <div id="screen-game" class="screen hidden">
         <div class="info-bar">
             <span id="room-display">ROOM: --</span>
@@ -200,13 +160,13 @@
     </div>
 
     <script>
-        // Use WSS Port 8884
         const BROKER = "wss://8a4b97051b294cff830f708512f57d7c.s1.eu.hivemq.cloud:8884/mqtt";
         const MQTT_USER = "jeopardy_user";
 
         let client, roomId, playerIdx, isPlaying = false;
         let pingInterval, retryFetch;
         let currentRtt = 0;
+        let isQueued = false; // Local state to track if we buzzed
 
         function connectMQTT() {
             roomId = document.getElementById("roomCode").value.trim().toUpperCase();
@@ -247,7 +207,6 @@
                     alert("Game Closed"); location.reload();
                 }
 
-                // Ping Calculation
                 if (topic.endsWith("pong") && isPlaying) {
                     try {
                         const data = JSON.parse(msg);
@@ -289,7 +248,7 @@
             document.getElementById("room-display").innerText = roomId;
             
             client.publish(`jeopardy/${roomId}/join`, idx.toString());
-            pingInterval = setInterval(sendPing, 1000); // 1s Ping Loop
+            pingInterval = setInterval(sendPing, 1000); 
             sendPing();
         }
 
@@ -307,12 +266,17 @@
             const stat = document.getElementById("game-status");
 
             if (data.state === "unlocked") {
+                // If buzzers unlock, clear queue status if it was from a previous question
+                // BUT, if we are excluded, we can't buzz.
+                
                 if (data.excluded_list && data.excluded_list.includes(playerIdx)) {
-                    btn.className = "b-locked";
-                    btn.innerText = "LOCKED";
-                    stat.innerText = "You already answered.";
+                    isQueued = false;
+                    btn.className = "b-excluded";
+                    btn.innerText = "WAIT";
+                    stat.innerText = "Already Answered";
                     stat.style.color = "#e71d36";
                 } else {
+                    isQueued = false; // Reset queue state as everyone can buzz now
                     btn.className = "b-unlocked";
                     btn.innerText = "BUZZ!";
                     stat.innerText = "PRESS NOW!";
@@ -320,13 +284,30 @@
                     if(navigator.vibrate) navigator.vibrate(50);
                 }
             } else {
-                // If we were buzzed, don't immediately override text if we want feedback persistence
-                // BUT, host usually sends "locked" immediately after someone wins.
-                // We reset to locked state.
-                btn.className = "b-locked";
-                btn.innerText = "LOCKED";
-                stat.innerText = "Wait for question...";
-                stat.style.color = "#5a6b85";
+                // LOCKED state
+                // Check if I am the active player
+                if (data.active_player_idx === playerIdx) {
+                    isQueued = false; // I am now active
+                    btn.className = "b-active";
+                    btn.innerText = "YOUR TURN";
+                    stat.innerText = "Answer now!";
+                    stat.style.color = "#eab308";
+                    if(navigator.vibrate) navigator.vibrate([100, 50, 100]);
+                } 
+                // Check if I am queued (I pressed buzz recently)
+                else if (isQueued) {
+                    btn.className = "b-queued";
+                    btn.innerText = "QUEUED";
+                    stat.innerText = "You are in line...";
+                    stat.style.color = "#eab308";
+                } 
+                // Default Locked (Waiting for others or host)
+                else {
+                    btn.className = "b-locked";
+                    btn.innerText = "LOCKED";
+                    stat.innerText = "Wait for question...";
+                    stat.style.color = "#5a6b85";
+                }
             }
         }
 
@@ -338,11 +319,15 @@
                 type: "buzz", playerIdx: playerIdx, ts: Date.now()
             }));
 
-            // Immediate Feedback (Persists until Host sends new status)
-            btn.className = "b-buzzed";
-            btn.innerText = "SENT";
-            document.getElementById("game-status").innerText = "Signal Sent!";
-            document.getElementById("game-status").style.color = "#ff9f1c";
+            // Set Queued State Locally immediately
+            isQueued = true;
+            
+            // Visual Update
+            btn.className = "b-queued";
+            btn.innerText = "QUEUED";
+            document.getElementById("game-status").innerText = "You are in line...";
+            document.getElementById("game-status").style.color = "#eab308";
+            
             if(navigator.vibrate) navigator.vibrate([30,30]);
         }
 
