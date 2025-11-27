@@ -7,16 +7,13 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/mqtt/4.3.7/mqtt.min.js"></script>
     <style>
         body { background-color: #121212; color: white; font-family: 'Segoe UI', sans-serif; text-align: center; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; overflow: hidden; }
-        
         .setup-screen { display: flex; flex-direction: column; gap: 15px; width: 90%; max-width: 400px;}
         input, button { padding: 15px; font-size: 1.2rem; border-radius: 8px; border: none; width: 100%; box-sizing: border-box; }
         input { background: #333; color: white; border: 1px solid #555; outline: none; }
         input:focus { border-color: #FFD700; }
         button { background: #283593; color: white; font-weight: bold; cursor: pointer; transition: background 0.2s; }
         button:active { transform: scale(0.98); }
-        
         h1, h2 { margin-bottom: 10px; color: #FFD700; }
-
         .name-list { display: flex; flex-direction: column; gap: 10px; max-height: 60vh; overflow-y: auto; width: 100%; }
         .name-btn { background: #333; color: white; text-align: left; padding: 15px 20px; font-size: 1.1rem; border: 1px solid #444; cursor: pointer; }
         .name-btn:hover { background: #444; border-color: #FFD700; }
@@ -25,7 +22,7 @@
             width: 70vw; height: 70vw; max-width: 300px; max-height: 300px;
             border-radius: 50%; border: 8px solid #222; 
             font-size: 2rem; font-weight: bold; color: #888;
-            background: #d32f2f; /* LOCKED = RED */
+            background: #d32f2f; 
             box-shadow: inset 0 0 20px #000;
             transition: all 0.1s;
             pointer-events: none; 
@@ -35,7 +32,7 @@
         }
 
         .unlocked {
-            background: radial-gradient(circle, #00e676, #00c853) !important;
+            background: radial-gradient(circle, #00e676, #00c853) !important; 
             color: white !important;
             border-color: #00c853 !important;
             box-shadow: 0 0 40px rgba(0, 230, 118, 0.4) !important;
@@ -45,14 +42,14 @@
         .unlocked:active { transform: scale(0.95); }
 
         .buzzed {
-            background: #555 !important; /* GREY */
+            background: #555 !important; 
             color: #aaa !important;
             border-color: #777 !important;
             box-shadow: none !important;
         }
         
         .locked {
-            background: #d32f2f !important; /* RED */
+            background: #d32f2f !important; 
             color: #ffcccc !important;
             border-color: #b71c1c !important;
         }
@@ -67,8 +64,7 @@
 
     <div id="screen-room" class="setup-screen">
         <h1>Jeopardy Buzzer</h1>
-        <p style="color:#aaa; font-size:0.9rem; margin:0;">Verbindung zum Spielserver</p>
-        <input type="text" id="roomCode" placeholder="Raum Code (z.B. JEO-1234)" style="text-transform: uppercase; text-align:center; font-weight:bold; letter-spacing: 1px;">
+        <input type="text" id="roomCode" placeholder="Raum Code" style="text-transform: uppercase; text-align:center;">
         <input type="password" id="mqttPass" placeholder="Passwort" style="text-align:center;">
         <button onclick="connectAndFetchPlayers()">Beitreten</button>
         <div id="conn-status" style="color: #888; margin-top: 10px; font-size: 0.9rem;"></div>
@@ -79,7 +75,7 @@
              <button onclick="location.reload()" style="width: 40px; height: 40px; padding: 0; background: #333; border-radius: 50%; font-size: 1.2rem;">◄</button>
              <h2 style="margin: 0 0 0 20px;">Wer bist du?</h2>
         </div>
-        <div id="nameList" class="name-list">Lade Spieler...</div>
+        <div id="nameList" class="name-list"></div>
     </div>
 
     <div id="screen-game" class="hidden" style="flex-direction: column; align-items: center; width: 100%;">
@@ -88,158 +84,94 @@
         <div id="buzzer-container">
             <button id="buzzer-btn" onclick="buzz()">GESPERRT</button>
         </div>
-        <div id="status">Warte auf Freigabe...</div>
-        <button onclick="leaveGame()" style="background:#444; margin-top:40px; width:auto; padding: 10px 20px; font-size: 1rem;">Abmelden</button>
-        <p style="color:#555; font-size: 0.8rem; margin-top: 10px;">(Leertaste zum Buzzern)</p>
+        <div id="status">Warte...</div>
+        <button onclick="leaveGame()" style="background:#444; margin-top:40px; width:auto; padding: 10px 20px;">Abmelden</button>
     </div>
 
     <script>
         const BROKER = "wss://8a4b97051b294cff830f708512f57d7c.s1.eu.hivemq.cloud:8884/mqtt";
         const MQTT_USER = "jeopardy_user"; 
-        
-        let client;
-        let roomId;
-        let playerNum;
-        let isPlaying = false;
+        let client, roomId, playerNum, isPlaying = false;
 
-        document.addEventListener('keydown', function(event) {
-            if (event.code === 'Space') {
-                const gameScreen = document.getElementById("screen-game");
-                if (!gameScreen.classList.contains("hidden")) {
-                    event.preventDefault(); 
-                    const btn = document.getElementById("buzzer-btn");
-                    if (btn.classList.contains("unlocked")) {
-                        buzz();
-                    }
-                }
+        document.addEventListener('keydown', (e) => {
+            if (e.code === 'Space' && !document.getElementById("screen-game").classList.contains("hidden")) {
+                e.preventDefault(); const b = document.getElementById("buzzer-btn");
+                if (b.classList.contains("unlocked")) buzz();
             }
         });
 
-        window.addEventListener('pagehide', () => {
-            if (isPlaying && client?.connected) client.publish(`jeopardy/${roomId}/leave`, playerNum.toString());
-        });
+        window.addEventListener('pagehide', () => { if (isPlaying && client?.connected) client.publish(`jeopardy/${roomId}/leave`, playerNum.toString()); });
 
         function leaveGame() {
-            if (confirm("Wirklich abmelden?")) {
+            if (confirm("Abmelden?")) {
                 if (client?.connected) client.publish(`jeopardy/${roomId}/leave`, playerNum.toString());
                 location.reload();
             }
         }
 
         function connectAndFetchPlayers() {
-            const inputRoom = document.getElementById("roomCode");
-            const inputPass = document.getElementById("mqttPass");
-            const statusDiv = document.getElementById("conn-status");
-            
-            roomId = inputRoom.value.trim().toUpperCase();
-            const password = inputPass.value.trim();
-            
-            if (!roomId) { inputRoom.style.borderColor = "red"; return; }
-            if (!password) { inputPass.style.borderColor = "red"; return; }
-
-            statusDiv.innerText = "Verbinde zu Server...";
-            const clientId = "jeo_client_" + Math.random().toString(16).substr(2, 8);
-            
-            try {
-                client = mqtt.connect(BROKER, { 
-                    clientId: clientId,
-                    username: MQTT_USER,
-                    password: password, 
-                    connectTimeout: 5000 
-                });
-            } catch(e) {
-                statusDiv.innerText = "Fehler: " + e.message;
-                return;
-            }
+            roomId = document.getElementById("roomCode").value.trim().toUpperCase();
+            const pass = document.getElementById("mqttPass").value.trim();
+            if(!roomId || !pass) return;
+            document.getElementById("conn-status").innerText = "Verbinde...";
+            const clientId = "jeo_" + Math.random().toString(16).substr(2, 8);
+            try { client = mqtt.connect(BROKER, { clientId, username: MQTT_USER, password: pass, connectTimeout: 5000 }); } catch(e) { return; }
             
             client.on("connect", () => {
-                statusDiv.innerText = "Verbunden! Suche Raum...";
-                client.subscribe(`jeopardy/${roomId}/players_response`);
-                client.subscribe(`jeopardy/${roomId}/status`); 
+                client.subscribe(`jeopardy/${roomId}/#`);
                 client.publish(`jeopardy/${roomId}/players_request`, "get");
-                
                 setTimeout(() => {
-                    if(document.getElementById("screen-room").classList.contains("hidden") === false) {
-                        statusDiv.innerText = "Keine Antwort. Code falsch oder Host nicht bereit.";
-                    }
+                    if(!document.getElementById("screen-room").classList.contains("hidden")) 
+                        document.getElementById("conn-status").innerText = "Keine Antwort.";
                 }, 4000);
             });
 
             client.on("message", (topic, message) => {
                 if (topic.endsWith("players_response") && !isPlaying) {
-                    try { const players = JSON.parse(message.toString()); showNameSelection(players); } catch(e) { console.error(e); }
+                    try { const players = JSON.parse(message.toString()); showNameSelection(players); } catch(e) {}
                 }
-                
-                if (topic.endsWith("status")) {
-                    const msg = message.toString();
-                    if (msg === "game_over") {
-                        alert("Der Host hat das Spiel beendet.");
-                        location.reload();
-                    } else {
-                        if (isPlaying) { updateBuzzerState(msg); }
-                    }
-                }
-                
-                // JSON Status für Exclude Liste
-                if (topic.endsWith("status_json") && isPlaying) {
-                     try {
-                         updateBuzzerStateJSON(JSON.parse(message.toString()));
-                     } catch(e) { console.error(e); }
-                }
+                if (topic.endsWith("status_json") && isPlaying) updateBuzzerStateJSON(JSON.parse(message.toString()));
+                if (topic.endsWith("status") && message.toString() === "game_over") { alert("Spiel beendet"); location.reload(); }
             });
-            
-            client.on("error", (err) => {
-                statusDiv.innerText = "Verbindungsfehler! Passwort prüfen.";
-                console.error(err);
-                client.end();
-            });
+            client.on("error", (e) => { document.getElementById("conn-status").innerText = "Verbindungsfehler!"; client.end(); });
         }
 
         function showNameSelection(players) {
             document.getElementById("screen-room").classList.add("hidden");
             document.getElementById("screen-name").classList.remove("hidden");
             document.getElementById("screen-name").classList.add("flex");
+            const list = document.getElementById("nameList"); list.innerHTML = "";
             
-            const list = document.getElementById("nameList");
-            list.innerHTML = "";
-            
-            // Nur freie Spieler anzeigen
+            // Filter: Nur Spieler, die NICHT 'taken' sind
             const available = players.filter(p => !p.taken);
             
-            if(available.length === 0) {
-                list.innerHTML = "<p style='color:#888'>Alle Plätze sind belegt.</p>";
-            } else {
-                available.forEach((p) => {
-                    const btn = document.createElement("button");
-                    btn.className = "name-btn";
-                    btn.innerText = p.name;
-                    btn.onclick = () => joinGame(p.id, p.name); 
-                    list.appendChild(btn);
-                });
-            }
+            if(available.length === 0) list.innerHTML = "<p style='color:#888'>Alle belegt.</p>";
+            
+            available.forEach((p) => {
+                const btn = document.createElement("button");
+                btn.className = "name-btn";
+                btn.innerText = p.name;
+                btn.onclick = () => joinGame(p.id, p.name); 
+                list.appendChild(btn);
+            });
         }
 
         function joinGame(idx, name) {
-            playerNum = idx;
-            isPlaying = true;
+            playerNum = idx; isPlaying = true;
             document.getElementById("screen-name").classList.add("hidden");
             document.getElementById("screen-name").classList.remove("flex");
             document.getElementById("screen-game").classList.remove("hidden");
             document.getElementById("screen-game").classList.add("flex");
             document.getElementById("playerNameDisplay").innerText = name;
             document.getElementById("room-display").innerText = "Room: " + roomId;
-            
             client.publish(`jeopardy/${roomId}/join`, idx.toString());
-            
             updateBuzzerStateJSON({state: "locked"});
         }
         
         function updateBuzzerStateJSON(data) {
             const btn = document.getElementById("buzzer-btn");
             const stat = document.getElementById("status");
-            
             if (data.state === "unlocked") {
-                // Exclude Check
                 if (data.excluded_list && data.excluded_list.includes(playerNum - 1)) {
                      btn.className = "locked";
                      btn.innerText = "GESPERRT";
@@ -250,37 +182,24 @@
                     btn.innerText = "BUZZER!";
                     stat.innerText = "JETZT DRÜCKEN!";
                     stat.style.color = "#00e676";
-                    if(navigator.vibrate) navigator.vibrate(100); 
+                    if(navigator.vibrate) navigator.vibrate(100);
                 }
             } else {
                 btn.className = "locked";
                 btn.innerText = "GESPERRT";
-                stat.innerText = "Warte auf Freigabe...";
+                stat.innerText = "Warte...";
                 stat.style.color = "#888";
             }
-        }
-        
-        // Legacy Fallback
-        function updateBuzzerState(state) {
-             updateBuzzerStateJSON({state: state});
         }
 
         function buzz() {
             const btn = document.getElementById("buzzer-btn");
-            client.publish(`jeopardy/${roomId}/buzz`, playerNum.toString());
-            
+            client.publish(`jeopardy/${roomId}/buzz`, JSON.stringify({ type: "buzz", playerIdx: playerNum - 1, ts: Date.now() }));
             btn.className = "buzzed";
             btn.innerText = "GEBUZZERT!";
             document.getElementById("status").innerText = "Signal gesendet!";
-            
-            if(navigator.vibrate) navigator.vibrate([50, 50, 50]);
-            
-            setTimeout(() => {
-               if (btn.innerText === "GEBUZZERT!") {
-                   btn.className = "locked";
-                   btn.innerText = "GESPERRT";
-               }
-            }, 1000);
+            if(navigator.vibrate) navigator.vibrate([50,50,50]);
+            setTimeout(() => { if(btn.innerText==="GEBUZZERT!") { btn.className="locked"; btn.innerText="GESPERRT"; } }, 1000);
         }
     </script>
 </body>
