@@ -205,7 +205,6 @@
     <div id="screen-room" class="setup-screen">
         <h1>JEOPARDY! BUZZER</h1>
         <input type="text" id="roomCode" placeholder="Raum Code" maxlength="8" style="text-transform: uppercase; text-align:center;">
-        <!-- NEUES PASSWORT-FELD HINZUGEFÜGT -->
         <input type="password" id="mqttPass" placeholder="MQTT Passwort" style="text-align:center;">
         <button onclick="connectAndFetchPlayers()">BEITRETEN</button>
         <div id="conn-status" style="color: #888; margin-top: 10px; font-size: 1rem; font-weight: normal;"></div>
@@ -255,7 +254,9 @@
         });
 
         function leaveGame() {
-            if (confirm("Möchtest du das Spiel wirklich verlassen?")) {
+            // Verwende anstelle von window.confirm eine benutzerdefinierte Meldung, um Kompatibilität zu gewährleisten
+            const confirmLeave = window.confirm("Möchtest du das Spiel wirklich verlassen?");
+            if (confirmLeave) {
                 if (client?.connected) client.publish(`jeopardy/${roomId}/leave`, playerNum.toString());
                 if (pingInterval) clearInterval(pingInterval);
                 location.reload();
@@ -284,32 +285,37 @@
         }
 
         function connectAndFetchPlayers() {
+            // Lesen der Eingabewerte
             roomId = document.getElementById("roomCode").value.trim().toUpperCase();
-            // Lese das Passwort aus dem neuen Eingabefeld
             const pass = document.getElementById("mqttPass").value.trim(); 
+            const statusLabel = document.getElementById("conn-status");
             
+            // Validierung
             if(!roomId || !pass) {
-                document.getElementById("conn-status").innerText = "Raum-Code und Passwort eingeben.";
+                statusLabel.innerText = "Raum-Code und Passwort eingeben.";
                 return;
             }
-            document.getElementById("conn-status").innerText = "Verbinde mit MQTT-Broker...";
+            
+            statusLabel.innerText = "Verbinde mit MQTT-Broker...";
             const clientId = "jeo_" + Math.random().toString(16).substr(2, 8);
             
             try { 
-                // Verwende das vom Benutzer eingegebene Passwort
+                // Initialisiere den MQTT-Client mit den Anmeldedaten
                 client = mqtt.connect(BROKER, { clientId, username: MQTT_USER, password: pass, connectTimeout: 5000 }); 
             } catch(e) { 
-                document.getElementById("conn-status").innerText = "Kritischer Verbindungsfehler.";
+                statusLabel.innerText = "Kritischer Verbindungsfehler bei Initialisierung.";
                 return; 
             }
 
             client.on("connect", () => {
                 client.subscribe(`jeopardy/${roomId}/#`);
                 client.publish(`jeopardy/${roomId}/players_request`, "get");
-                document.getElementById("conn-status").innerText = "Verbunden. Lade Spielerliste vom Host...";
+                statusLabel.innerText = "Verbunden. Lade Spielerliste vom Host...";
+                
+                // Timeout, falls keine Spielerliste vom Host empfangen wird
                 setTimeout(() => {
-                    if(!document.getElementById("screen-room").classList.contains("hidden") && document.getElementById("conn-status").innerText.includes("Lade Spieler"))
-                        document.getElementById("conn-status").innerText = "Keine Antwort vom Host (Raum existiert?).";
+                    if(!document.getElementById("screen-room").classList.contains("hidden") && statusLabel.innerText.includes("Lade Spieler"))
+                        statusLabel.innerText = "Keine Antwort vom Host (Raum existiert?).";
                 }, 4000);
             });
 
@@ -317,7 +323,10 @@
                 const msg = message.toString();
                 
                 if (topic.endsWith("players_response") && !isPlaying) {
-                    try { const players = JSON.parse(msg); showNameSelection(players); } catch(e) {}
+                    try { const players = JSON.parse(msg); showNameSelection(players); } catch(e) {
+                         // Fehler beim Parsen der Spielerliste
+                         statusLabel.innerText = "Fehler: Ungültige Spielerdaten vom Host.";
+                    }
                 }
                 
                 if (topic.endsWith("status_json") && isPlaying) updateBuzzerStateJSON(JSON.parse(msg));
@@ -336,8 +345,15 @@
             });
             
             client.on("error", (e) => { 
-                document.getElementById("conn-status").innerText = "Verbindungsfehler! Prüfe Code/Passwort."; 
+                statusLabel.innerText = "Verbindungsfehler! Prüfe Code/Passwort."; 
                 client.end(); 
+            });
+            
+            // Optional: Wenn der Host die Verbindung aus Sicherheitsgründen ablehnt
+            client.on("close", () => {
+                if (statusLabel.innerText.includes("Verbinde mit MQTT-Broker")) {
+                     statusLabel.innerText = "Verbindung fehlgeschlagen oder abgelehnt. Prüfe Passwort."; 
+                }
             });
         }
 
@@ -388,13 +404,15 @@
                      btn.className = "locked";
                      btn.innerText = "GESPERRT";
                      stat.innerText = "Bereits geantwortet"; 
-                     stat.style.color = var(--color-error); 
+                     // Korrektur: Nutze den statischen Farbwert statt der fehlerhaften var()-Syntax
+                     stat.style.color = '#F44336'; // var(--color-error)
                 } else {
                     // Unlocked
                     btn.className = "unlocked";
                     btn.innerText = "BUZZER!";
                     stat.innerText = "JETZT DRÜCKEN!";
-                    stat.style.color = var(--color-success);
+                    // Korrektur: Nutze den statischen Farbwert statt der fehlerhaften var()-Syntax
+                    stat.style.color = '#4CAF50'; // var(--color-success)
                     if(navigator.vibrate) navigator.vibrate(100);
                 }
             } else {
