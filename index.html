@@ -210,6 +210,7 @@
                 if (topic.endsWith("pong") && isPlaying) {
                     try {
                         const data = JSON.parse(msg);
+                        // Only process pong if it's for me (my player index)
                         if (data.playerIdx === playerIdx && data.client_send_ts) {
                             currentRtt = Date.now() - data.client_send_ts;
                             document.getElementById("ping-display").innerText = `${currentRtt} ms`;
@@ -234,14 +235,17 @@
                 const btn = document.createElement("button");
                 btn.className = "name-btn";
                 btn.innerText = p.name;
+                // Note: The host uses 0-based indexing for playerIdx, but the client uses 1-based index (id) to join.
+                // Here, idx is 0-based, which is correct for checking if the host marked them as 'taken'
                 if(p.taken) { btn.disabled = true; btn.innerText += " (Active)"; }
-                else { btn.onclick = () => startGame(idx, p.name); }
+                else { btn.onclick = () => startGame(idx, p.name); } 
                 list.appendChild(btn);
             });
         }
 
         function startGame(idx, name) {
-            playerIdx = idx; isPlaying = true;
+            playerIdx = idx; // Player Index is 0-based for MQTT/Host Communication
+            isPlaying = true;
             document.getElementById("screen-select").classList.add("hidden");
             document.getElementById("screen-game").classList.remove("hidden");
             document.getElementById("player-name").innerText = name;
@@ -265,16 +269,22 @@
             const btn = document.getElementById("buzzer-btn");
             const stat = document.getElementById("game-status");
 
+            const isExcluded = data.excluded_list && data.excluded_list.includes(playerIdx);
+            const isActivePlayer = data.active_player_idx === playerIdx;
+
             if (data.state === "unlocked") {
-                // Check if I am excluded (answered wrong previously)
-                if (data.excluded_list && data.excluded_list.includes(playerIdx)) {
-                    isQueued = false;
+                // Host opened buzzers (new question or next attempt)
+                // Forcefully clear the queue state, as the host has reset it.
+                isQueued = false; 
+                
+                if (isExcluded) {
+                    // Cannot buzz, was wrong previously (Shouldn't happen on fresh unlock, but for safety)
                     btn.className = "b-excluded";
                     btn.innerText = "EXCLUDED";
-                    stat.innerText = "Already Answered";
+                    stat.innerText = "Already Answered Wrong";
                     stat.style.color = "#e71d36";
                 } else {
-                    isQueued = false; // Reset queue state as everyone can buzz now
+                    // Can buzz now
                     btn.className = "b-unlocked";
                     btn.innerText = "BUZZ!";
                     stat.innerText = "PRESS NOW!";
@@ -282,15 +292,15 @@
                     if(navigator.vibrate) navigator.vibrate(50);
                 }
             } else {
-                // LOCKED state
-                // 1. Check if I am the active player (Host chose me or I buzzed first)
-                if (data.active_player_idx === playerIdx) {
-                    isQueued = false; // I am now active
+                // LOCKED state (Host decision or system lock)
+
+                // 1. Check if I am the active player (Highest priority status)
+                if (isActivePlayer) {
+                    isQueued = false;
                     btn.className = "b-active";
                     btn.innerText = "YOUR TURN";
                     stat.innerText = "Answer now!";
                     stat.style.color = "#eab308";
-                    if(navigator.vibrate) navigator.vibrate([100, 50, 100]);
                 } 
                 // 2. Check if I am queued (I pressed buzz recently and am waiting)
                 else if (isQueued) {
@@ -300,15 +310,16 @@
                     stat.style.color = "#eab308";
                 } 
                 // 3. Check if I am excluded (Answered wrong in this round)
-                else if (data.excluded_list && data.excluded_list.includes(playerIdx)) {
-                    isQueued = false;
+                else if (isExcluded) {
+                    isQueued = false; // If excluded, cannot be queued anymore
                     btn.className = "b-excluded";
                     btn.innerText = "EXCLUDED";
-                    stat.innerText = "Already Answered";
+                    stat.innerText = "Already Answered Wrong";
                     stat.style.color = "#e71d36";
                 }
-                // 4. Default Locked (Waiting for others or host)
+                // 4. Default Locked OR Question Closed (active_player_idx is null)
                 else {
+                    isQueued = false; // Reset queue state if locked and not queued/active/excluded
                     btn.className = "b-locked";
                     btn.innerText = "LOCKED";
                     stat.innerText = "Wait for question...";
@@ -319,13 +330,14 @@
 
         function handleBuzz() {
             const btn = document.getElementById("buzzer-btn");
+            // Only allow buzz if state is unlocked AND we are not currently queued/excluded
             if (!btn.classList.contains("b-unlocked")) return;
 
             client.publish(`jeopardy/${roomId}/buzz`, JSON.stringify({
                 type: "buzz", playerIdx: playerIdx, ts: Date.now()
             }));
 
-            // Set Queued State Locally immediately
+            // Set Queued State Locally immediately for visual feedback
             isQueued = true;
             
             // Visual Update: Show queued state
