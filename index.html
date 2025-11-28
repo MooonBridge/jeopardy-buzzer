@@ -66,23 +66,19 @@
         }
 
         /* States */
-        /* Locked (Default) */
         .b-locked { background: #2a3b55 !important; color: #5a6b85 !important; transform: scale(0.95); box-shadow: inset 0 0 20px rgba(0,0,0,0.5) !important; }
         
-        /* Unlocked (Ready to Buzz) - Green */
         .b-unlocked { 
             background: linear-gradient(145deg, #2ec4b6, #20a094) !important; border-color: #2ec4b6 !important;
             box-shadow: 0 0 40px rgba(46, 196, 182, 0.4) !important; cursor: pointer; transform: scale(1.05);
         }
         .b-unlocked:active { transform: scale(0.95); }
         
-        /* Queued - Yellow/Orange */
         .b-queued { 
             background: var(--queue-color) !important; border-color: #ca8a04 !important; color: #000 !important; text-shadow: none !important;
             transform: scale(1.0); box-shadow: 0 0 20px rgba(234, 179, 8, 0.4) !important;
         }
 
-        /* Active (My Turn) - Yellow/Gold */
         .b-active {
             background: var(--active-color) !important; 
             border-color: #ca8a04 !important; 
@@ -91,7 +87,6 @@
             box-shadow: 0 0 50px rgba(234, 179, 8, 0.6) !important;
         }
 
-        /* Answered Wrong / Excluded - Red/Gray */
         .b-excluded {
             background: #3f1515 !important;
             border-color: #5c1818 !important;
@@ -166,7 +161,7 @@
         let client, roomId, playerIdx, isPlaying = false;
         let pingInterval, retryFetch;
         let currentRtt = 0;
-        let isQueued = false; // Local state to track if we buzzed
+        let isQueued = false; 
 
         function connectMQTT() {
             roomId = document.getElementById("roomCode").value.trim().toUpperCase();
@@ -210,7 +205,6 @@
                 if (topic.endsWith("pong") && isPlaying) {
                     try {
                         const data = JSON.parse(msg);
-                        // Only process pong if it's for me (my player index)
                         if (data.playerIdx === playerIdx && data.client_send_ts) {
                             currentRtt = Date.now() - data.client_send_ts;
                             document.getElementById("ping-display").innerText = `${currentRtt} ms`;
@@ -235,8 +229,6 @@
                 const btn = document.createElement("button");
                 btn.className = "name-btn";
                 btn.innerText = p.name;
-                // Note: The host uses 0-based indexing for playerIdx, but the client uses 1-based index (id) to join.
-                // Here, idx is 0-based, which is correct for checking if the host marked them as 'taken'
                 if(p.taken) { btn.disabled = true; btn.innerText += " (Active)"; }
                 else { btn.onclick = () => startGame(idx, p.name); } 
                 list.appendChild(btn);
@@ -244,8 +236,7 @@
         }
 
         function startGame(idx, name) {
-            playerIdx = idx; // Player Index is 0-based for MQTT/Host Communication
-            isPlaying = true;
+            playerIdx = idx; isPlaying = true;
             document.getElementById("screen-select").classList.add("hidden");
             document.getElementById("screen-game").classList.remove("hidden");
             document.getElementById("player-name").innerText = name;
@@ -272,75 +263,66 @@
             const isExcluded = data.excluded_list && data.excluded_list.includes(playerIdx);
             const isActivePlayer = data.active_player_idx === playerIdx;
 
-            if (data.state === "unlocked") {
-                // Host opened buzzers (new question or next attempt)
-                // Forcefully clear the queue state, as the host has reset it.
-                isQueued = false; 
-                
-                if (isExcluded) {
-                    // Cannot buzz, was wrong previously (Shouldn't happen on fresh unlock, but for safety)
-                    btn.className = "b-excluded";
-                    btn.innerText = "EXCLUDED";
-                    stat.innerText = "Already Answered Wrong";
-                    stat.style.color = "#e71d36";
-                } else {
-                    // Can buzz now
-                    btn.className = "b-unlocked";
-                    btn.innerText = "BUZZ!";
-                    stat.innerText = "PRESS NOW!";
-                    stat.style.color = "#2ec4b6";
-                    if(navigator.vibrate) navigator.vibrate(50);
-                }
-            } else {
-                // LOCKED state (Host decision or system lock)
-
-                // 1. Check if I am the active player (Highest priority status)
-                if (isActivePlayer) {
-                    isQueued = false;
-                    btn.className = "b-active";
-                    btn.innerText = "YOUR TURN";
-                    stat.innerText = "Answer now!";
-                    stat.style.color = "#eab308";
-                } 
-                // 2. Check if I am queued (I pressed buzz recently and am waiting)
-                else if (isQueued) {
-                    btn.className = "b-queued";
-                    btn.innerText = "QUEUED";
-                    stat.innerText = "You are in line...";
-                    stat.style.color = "#eab308";
-                } 
-                // 3. Check if I am excluded (Answered wrong in this round)
-                else if (isExcluded) {
-                    isQueued = false; // If excluded, cannot be queued anymore
-                    btn.className = "b-excluded";
-                    btn.innerText = "EXCLUDED";
-                    stat.innerText = "Already Answered Wrong";
-                    stat.style.color = "#e71d36";
-                }
-                // 4. Default Locked OR Question Closed (active_player_idx is null)
-                else {
-                    isQueued = false; // Reset queue state if locked and not queued/active/excluded
-                    btn.className = "b-locked";
-                    btn.innerText = "LOCKED";
-                    stat.innerText = "Wait for question...";
-                    stat.style.color = "#5a6b85";
-                }
+            // PRIORITY 1: Active Player
+            if (isActivePlayer) {
+                isQueued = false; // Clear queued status as we are now active
+                btn.className = "b-active";
+                btn.innerText = "YOUR TURN";
+                stat.innerText = "Answer now!";
+                stat.style.color = "#eab308";
+                if(navigator.vibrate) navigator.vibrate([100, 50, 100]);
+                return;
             }
+
+            // PRIORITY 2: Excluded (Wrong Answer)
+            if (isExcluded) {
+                isQueued = false;
+                btn.className = "b-excluded";
+                btn.innerText = "EXCLUDED";
+                stat.innerText = "Already Answered Wrong";
+                stat.style.color = "#e71d36";
+                return;
+            }
+
+            // PRIORITY 3: Unlocked (Can Buzz)
+            if (data.state === "unlocked") {
+                isQueued = false; // Reset queue if unlocked
+                btn.className = "b-unlocked";
+                btn.innerText = "BUZZ!";
+                stat.innerText = "PRESS NOW!";
+                stat.style.color = "#2ec4b6";
+                if(navigator.vibrate) navigator.vibrate(50);
+                return;
+            }
+
+            // PRIORITY 4: Queued (Waiting in line)
+            if (isQueued) {
+                btn.className = "b-queued";
+                btn.innerText = "QUEUED";
+                stat.innerText = "You are in line...";
+                stat.style.color = "#eab308";
+                return;
+            }
+
+            // PRIORITY 5: Locked (Default)
+            btn.className = "b-locked";
+            btn.innerText = "LOCKED";
+            stat.innerText = "Wait for question...";
+            stat.style.color = "#5a6b85";
         }
 
         function handleBuzz() {
             const btn = document.getElementById("buzzer-btn");
-            // Only allow buzz if state is unlocked AND we are not currently queued/excluded
             if (!btn.classList.contains("b-unlocked")) return;
 
             client.publish(`jeopardy/${roomId}/buzz`, JSON.stringify({
                 type: "buzz", playerIdx: playerIdx, ts: Date.now()
             }));
 
-            // Set Queued State Locally immediately for visual feedback
+            // Set Queued State Locally immediately
             isQueued = true;
             
-            // Visual Update: Show queued state
+            // Immediate Feedback
             btn.className = "b-queued";
             btn.innerText = "QUEUED";
             document.getElementById("game-status").innerText = "You are in line...";
