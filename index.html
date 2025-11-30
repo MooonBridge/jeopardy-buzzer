@@ -123,24 +123,24 @@
     <div id="screen-login" class="screen">
         <h1>JEOPARDY!</h1>
         <div class="setup-box">
-            <input type="text" id="roomCode" placeholder="ROOM CODE" maxlength="8" autocapitalize="characters" style="text-transform: uppercase;">
-            <input type="password" id="mqttPass" placeholder="PASSWORD" autocapitalize="off" autocomplete="off" autocorrect="off">
-            <button class="action-btn" onclick="connectMQTT()">JOIN GAME</button>
-            <div id="status-msg" style="color: #5a6b85; font-size: 0.9rem;">Ready</div>
+            <input type="text" id="roomCode" placeholder="RAUM CODE" maxlength="8" autocapitalize="characters" style="text-transform: uppercase;">
+            <input type="password" id="mqttPass" placeholder="PASSWORT" autocapitalize="off" autocomplete="off" autocorrect="off">
+            <button class="action-btn" onclick="connectMQTT()">BEITRETEN</button>
+            <div id="status-msg" style="color: #5a6b85; font-size: 0.9rem;">Bereit</div>
         </div>
     </div>
 
     <div id="screen-select" class="screen hidden">
-        <h2 style="color:#fff; margin-bottom:20px;">SELECT TEAM</h2>
+        <h2 style="color:#fff; margin-bottom:20px;">TEAM WÄHLEN</h2>
         <div class="setup-box">
             <div id="nameList" class="name-list"></div>
-            <button onclick="location.reload()" style="background:none; border:none; color:#5a6b85; margin-top:10px;">Back</button>
+            <button onclick="location.reload()" style="background:none; border:none; color:#5a6b85; margin-top:10px;">Zurück</button>
         </div>
     </div>
 
     <div id="screen-game" class="screen hidden">
         <div class="info-bar">
-            <span id="room-display">ROOM: --</span>
+            <span id="room-display">RAUM: --</span>
             <span id="ping-display" class="ping-badge">-- ms</span>
         </div>
 
@@ -148,15 +148,15 @@
             <h2 id="player-name" style="font-size: 2rem; color: #fff; margin: 0; font-weight: 700;">TEAM</h2>
             
             <div id="buzzer-btn" class="b-locked" onclick="handleBuzz()" ontouchstart="handleBuzz()">
-                LOCKED
+                GESPERRT
             </div>
             
             <div id="game-status" style="font-size: 1.2rem; font-weight: 600; color: #5a6b85; min-height: 1.5rem;">
-                Wait for question...
+                Warte auf Frage...
             </div>
         </div>
         
-        <button onclick="leaveGame()" style="margin-bottom: 40px; background:none; border:1px solid #2a3b55; color:#5a6b85; padding: 8px 20px; border-radius: 20px; font-size:0.8rem;">DISCONNECT</button>
+        <button onclick="leaveGame()" style="margin-bottom: 40px; background:none; border:1px solid #2a3b55; color:#5a6b85; padding: 8px 20px; border-radius: 20px; font-size:0.8rem;">TRENNEN</button>
     </div>
 
     <script>
@@ -173,16 +173,16 @@
             const pass = document.getElementById("mqttPass").value.trim();
             const status = document.getElementById("status-msg");
 
-            if(!roomId || !pass) { status.innerText = "Enter Code & Password"; return; }
-            status.innerText = "Connecting...";
+            if(!roomId || !pass) { status.innerText = "Code & Passwort eingeben"; return; }
+            status.innerText = "Verbinde...";
 
             const clientId = "jeo_web_" + Math.random().toString(16).substr(2, 8);
             try {
                 client = mqtt.connect(BROKER, { clientId, username: MQTT_USER, password: pass, keepalive: 60 });
-            } catch(e) { status.innerText = "Error: " + e; return; }
+            } catch(e) { status.innerText = "Fehler: " + e; return; }
 
             client.on("connect", () => {
-                status.innerText = "Connected! Loading...";
+                status.innerText = "Verbunden! Lade...";
                 client.subscribe(`jeopardy/${roomId}/#`, (err) => {
                     if(!err) {
                         requestPlayers();
@@ -204,7 +204,7 @@
                 }
 
                 if (topic.endsWith("status") && msg === "game_over") {
-                    alert("Game Closed"); location.reload();
+                    alert("Spiel geschlossen"); location.reload();
                 }
 
                 if (topic.endsWith("pong") && isPlaying) {
@@ -218,7 +218,7 @@
                 }
             });
 
-            client.on("error", () => { status.innerText = "Connection Failed"; });
+            client.on("error", () => { status.innerText = "Verbindung fehlgeschlagen"; });
         }
 
         function requestPlayers() {
@@ -234,7 +234,7 @@
                 const btn = document.createElement("button");
                 btn.className = "name-btn";
                 btn.innerText = p.name;
-                if(p.taken) { btn.disabled = true; btn.innerText += " (Active)"; }
+                if(p.taken) { btn.disabled = true; btn.innerText += " (Aktiv)"; }
                 else { btn.onclick = () => startGame(idx, p.name); } 
                 list.appendChild(btn);
             });
@@ -274,13 +274,13 @@
                 
                 if (isExcluded) {
                     btn.className = "b-excluded";
-                    btn.innerText = "EXCLUDED";
-                    stat.innerText = "Already Answered Wrong";
+                    btn.innerText = "GESPERRT";
+                    stat.innerText = "Bereits falsch geantwortet";
                     stat.style.color = "#e71d36";
                 } else {
                     btn.className = "b-unlocked";
-                    btn.innerText = "BUZZ!";
-                    stat.innerText = "PRESS NOW!";
+                    btn.innerText = "DRÜCKEN!";
+                    stat.innerText = "JETZT DRÜCKEN!";
                     stat.style.color = "#2ec4b6";
                     if(navigator.vibrate) navigator.vibrate(50);
                 }
@@ -296,31 +296,31 @@
                 if (isActivePlayer) {
                     isQueued = false; // I am now active
                     btn.className = "b-active";
-                    btn.innerText = "YOUR TURN";
-                    stat.innerText = "Answer now!";
+                    btn.innerText = "DU BIST DRAN";
+                    stat.innerText = "Antworte jetzt!";
                     stat.style.color = "#eab308";
                     if(navigator.vibrate) navigator.vibrate([100, 50, 100]);
                 } 
                 // 2. Check if I am queued (I pressed buzz recently and am waiting)
                 else if (isQueued) {
                     btn.className = "b-queued";
-                    btn.innerText = "QUEUED";
-                    stat.innerText = "You are in line...";
+                    btn.innerText = "EINGEREIHT";
+                    stat.innerText = "Du bist in der Warteschlange...";
                     stat.style.color = "#eab308";
                 } 
                 // 3. Check if I am excluded (Answered wrong in this round)
                 else if (isExcluded) {
                     isQueued = false; // Ensure queue state is cleared if excluded
                     btn.className = "b-excluded";
-                    btn.innerText = "EXCLUDED";
-                    stat.innerText = "Already Answered Wrong";
+                    btn.innerText = "GESPERRT";
+                    stat.innerText = "Bereits falsch geantwortet";
                     stat.style.color = "#e71d36";
                 }
                 // 4. Default Locked
                 else {
                     btn.className = "b-locked";
-                    btn.innerText = "LOCKED";
-                    stat.innerText = "Wait for question...";
+                    btn.innerText = "GESPERRT";
+                    stat.innerText = "Warte auf Frage...";
                     stat.style.color = "#5a6b85";
                 }
             }
@@ -339,15 +339,15 @@
             
             // Immediate Feedback
             btn.className = "b-queued";
-            btn.innerText = "QUEUED";
-            document.getElementById("game-status").innerText = "You are in line...";
+            btn.innerText = "EINGEREIHT";
+            document.getElementById("game-status").innerText = "Du bist in der Warteschlange...";
             document.getElementById("game-status").style.color = "#eab308";
             
             if(navigator.vibrate) navigator.vibrate([30,30]);
         }
 
         function leaveGame() {
-            if(confirm("Leave game?")) {
+            if(confirm("Spiel verlassen?")) {
                 if(client) client.publish(`jeopardy/${roomId}/leave`, playerIdx.toString());
                 location.reload();
             }
