@@ -121,6 +121,10 @@
             background: var(--active-color) !important; border-color: #ca8a04 !important; color: #000 !important;
             transform: scale(1.1); box-shadow: 0 0 50px rgba(234, 179, 8, 0.6) !important;
         }
+        .b-correct {
+            background: var(--success-color) !important; border-color: #1a9a8e !important; color: #fff !important; text-shadow: none !important;
+            transform: scale(1.1); box-shadow: 0 0 50px rgba(46, 196, 182, 0.6) !important;
+        }
         .b-excluded {
             background: #3f1515 !important; border-color: #5c1818 !important; color: #ff8888 !important;
             cursor: not-allowed; transform: scale(0.95);
@@ -305,6 +309,7 @@
             if (topicParts.length < 3) return;
 
             const action = topicParts[2];
+            const playerFeedbackIndex = topicParts.length > 3 ? parseInt(topicParts[3], 10) : -1;
 
             try {
                 if (action === "players_response" && !isPlaying) {
@@ -314,6 +319,12 @@
                 } else if (action === "status_json" && isPlaying) {
                     const data = JSON.parse(msg);
                     updateBuzzerState(data);
+                } else if (action === "player_feedback" && playerFeedbackIndex === playerIdx) {
+                    const data = JSON.parse(msg);
+                    if (data.state === "correct") {
+                        setBuzzerAppearance("correct", "RICHTIG!");
+                        setGameStatus("Super!", "var(--success-color)");
+                    }
                 } else if (action === "status" && msg === "game_over") {
                     alert("Das Spiel wurde vom Host beendet.");
                     location.reload();
