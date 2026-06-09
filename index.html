@@ -4,7 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>Jeopardy Buzzer</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/mqtt/4.3.7/mqtt.min.js"></script>
+    <!-- Production version of MQTT.js -->
+    <script src="https://unpkg.com/mqtt@4.3.7/dist/mqtt.min.js"></script>
     <style>
         :root {
             --bg-color: #0a0f1d;
@@ -17,11 +18,13 @@
             --queue-color: #eab308;   /* Yellow */
             --disabled-color: #5a6b85; /* Gray */
         }
-
+        html, body {
+            overscroll-behavior: none; /* Prevents pull-to-refresh */
+        }
         body {
             background-color: var(--bg-color);
             color: var(--text-color);
-            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
             text-align: center;
             display: flex;
             flex-direction: column;
@@ -30,33 +33,26 @@
             height: 100vh;
             margin: 0;
             overflow: hidden;
-            touch-action: manipulation;
+            touch-action: manipulation; /* Disables double-tap to zoom */
         }
-
-        /* Screens */
         .screen { width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; transition: opacity 0.3s; }
         .hidden { display: none !important; }
-
-        /* Setup Box */
         .setup-box {
             background: var(--card-color); padding: 30px; border-radius: 20px; width: 85%; max-width: 350px;
             display: flex; flex-direction: column; gap: 15px; box-shadow: 0 10px 40px rgba(0,0,0,0.6); border: 1px solid #2a3b55;
         }
-
         input {
             background: #0f1623; color: white; border: 2px solid #2a3b55; padding: 15px; font-size: 1.2rem;
-            border-radius: 10px; text-align: center; outline: none;
+            border-radius: 10px; text-align: center; outline: none; transition: border-color 0.2s;
         }
         input:focus { border-color: var(--accent-color); }
-
         button.action-btn {
             background: var(--accent-color); color: #000; border: none; padding: 15px; font-size: 1.1rem;
             font-weight: 800; border-radius: 10px; cursor: pointer; text-transform: uppercase; letter-spacing: 1px;
-            transition: transform 0.1s;
+            transition: transform 0.1s, background-color 0.2s;
         }
-        button.action-btn:active { transform: scale(0.98); }
-
-        /* Buzzer Button */
+        button.action-btn:disabled { background-color: #555; cursor: not-allowed; }
+        button.action-btn:active:not(:disabled) { transform: scale(0.98); }
         #buzzer-btn {
             width: 70vw; height: 70vw; max-width: 320px; max-height: 320px; border-radius: 50%;
             border: 10px solid #1a2639; font-size: 2.5rem; font-weight: 900; color: rgba(255,255,255,0.9);
@@ -64,57 +60,36 @@
             margin: 30px 0; user-select: none; transition: all 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
             text-shadow: 0 2px 4px rgba(0,0,0,0.5);
         }
-
-        /* States */
-        /* Locked (Default) */
         .b-locked { background: #2a3b55 !important; color: #5a6b85 !important; transform: scale(0.95); box-shadow: inset 0 0 20px rgba(0,0,0,0.5) !important; }
-        
-        /* Unlocked (Ready to Buzz) - Green */
-        .b-unlocked { 
+        .b-unlocked {
             background: linear-gradient(145deg, #2ec4b6, #20a094) !important; border-color: #2ec4b6 !important;
             box-shadow: 0 0 40px rgba(46, 196, 182, 0.4) !important; cursor: pointer; transform: scale(1.05);
         }
         .b-unlocked:active { transform: scale(0.95); }
-        
-        /* Queued - Yellow/Orange */
-        .b-queued { 
+        .b-queued {
             background: var(--queue-color) !important; border-color: #ca8a04 !important; color: #000 !important; text-shadow: none !important;
             transform: scale(1.0); box-shadow: 0 0 20px rgba(234, 179, 8, 0.4) !important;
         }
-
-        /* Active (My Turn) - Yellow/Gold */
         .b-active {
-            background: var(--active-color) !important; 
-            border-color: #ca8a04 !important; 
-            color: #000 !important;
-            transform: scale(1.1); 
-            box-shadow: 0 0 50px rgba(234, 179, 8, 0.6) !important;
+            background: var(--active-color) !important; border-color: #ca8a04 !important; color: #000 !important;
+            transform: scale(1.1); box-shadow: 0 0 50px rgba(234, 179, 8, 0.6) !important;
         }
-
-        /* Answered Wrong / Excluded - Red/Gray */
         .b-excluded {
-            background: #3f1515 !important;
-            border-color: #5c1818 !important;
-            color: #ff8888 !important;
-            cursor: not-allowed;
-            transform: scale(0.95);
+            background: #3f1515 !important; border-color: #5c1818 !important; color: #ff8888 !important;
+            cursor: not-allowed; transform: scale(0.95);
         }
-
-        /* Top Bar */
         .info-bar {
             position: absolute; top: 0; left: 0; right: 0; padding: 15px 20px; display: flex; justify-content: space-between; align-items: center;
             font-size: 0.85rem; color: #5a6b85; background: #0a0f1d; border-bottom: 1px solid #1a2639;
         }
         .ping-badge { font-family: monospace; background: #131b2e; padding: 4px 8px; border-radius: 4px; border: 1px solid #2a3b55; }
-
         .name-list { display: flex; flex-direction: column; gap: 8px; width: 100%; max-height: 50vh; overflow-y: auto; }
         .name-btn {
             background: #131b2e; color: white; padding: 15px; font-size: 1.1rem; font-weight: 600;
-            border: 1px solid #2a3b55; border-radius: 8px; text-align: left;
+            border: 1px solid #2a3b55; border-radius: 8px; text-align: left; cursor: pointer;
         }
         .name-btn:hover:not(:disabled) { border-color: var(--accent-color); background: #1a2639; }
-        .name-btn:disabled { opacity: 0.5; }
-
+        .name-btn:disabled { opacity: 0.5; cursor: not-allowed; }
         h1 { color: var(--accent-color); font-size: 2.5rem; margin-bottom: 10px; font-weight: 900; letter-spacing: 2px; }
     </style>
 </head>
@@ -125,7 +100,7 @@
         <div class="setup-box">
             <input type="text" id="roomCode" placeholder="RAUM CODE" maxlength="8" autocapitalize="characters" style="text-transform: uppercase;">
             <input type="password" id="mqttPass" placeholder="PASSWORT" autocapitalize="off" autocomplete="off" autocorrect="off">
-            <button class="action-btn" onclick="connectMQTT()">BEITRETEN</button>
+            <button id="joinBtn" class="action-btn">BEITRETEN</button>
             <div id="status-msg" style="color: #5a6b85; font-size: 0.9rem;">Bereit</div>
         </div>
     </div>
@@ -143,219 +118,251 @@
             <span id="room-display">RAUM: --</span>
             <span id="ping-display" class="ping-badge">-- ms</span>
         </div>
-
         <div style="flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center;">
             <h2 id="player-name" style="font-size: 2rem; color: #fff; margin: 0; font-weight: 700;">TEAM</h2>
-            
-            <div id="buzzer-btn" class="b-locked" onclick="handleBuzz()" ontouchstart="handleBuzz()">
-                GESPERRT
-            </div>
-            
-            <div id="game-status" style="font-size: 1.2rem; font-weight: 600; color: #5a6b85; min-height: 1.5rem;">
-                Warte auf Frage...
-            </div>
+            <div id="buzzer-btn" class="b-locked">GESPERRT</div>
+            <div id="game-status" style="font-size: 1.2rem; font-weight: 600; color: #5a6b85; min-height: 1.5rem;">Warte auf Frage...</div>
         </div>
-        
         <button onclick="leaveGame()" style="margin-bottom: 40px; background:none; border:1px solid #2a3b55; color:#5a6b85; padding: 8px 20px; border-radius: 20px; font-size:0.8rem;">TRENNEN</button>
     </div>
 
     <script>
-        const BROKER = "wss://8a4b97051b294cff830f708512f57d7c.s1.eu.hivemq.cloud:8884/mqtt";
+        // --- CONFIG ---
+        const BROKER_URL = "wss://8a4b97051b294cff830f708512f57d7c.s1.eu.hivemq.cloud:8884/mqtt";
         const MQTT_USER = "jeopardy_user";
 
-        let client, roomId, playerIdx, isPlaying = false;
-        let pingInterval, retryFetch;
+        // --- DOM ELEMENTS ---
+        const screens = {
+            login: document.getElementById("screen-login"),
+            select: document.getElementById("screen-select"),
+            game: document.getElementById("screen-game"),
+        };
+        const elements = {
+            roomCodeInput: document.getElementById("roomCode"),
+            passwordInput: document.getElementById("mqttPass"),
+            joinBtn: document.getElementById("joinBtn"),
+            statusMsg: document.getElementById("status-msg"),
+            nameList: document.getElementById("nameList"),
+            playerName: document.getElementById("player-name"),
+            roomDisplay: document.getElementById("room-display"),
+            pingDisplay: document.getElementById("ping-display"),
+            buzzerBtn: document.getElementById("buzzer-btn"),
+            gameStatus: document.getElementById("game-status"),
+        };
+
+        // --- STATE ---
+        let client, playerIdx, roomId;
+        let isPlaying = false;
+        let isQueued = false; // Local state to track if we buzzed and are waiting for confirmation
+        let pingInterval, playerListInterval;
         let currentRtt = 0;
-        let isQueued = false; // Local state to track if we buzzed
+
+        // --- FUNCTIONS ---
+
+        function showScreen(screenName) {
+            Object.values(screens).forEach(s => s.classList.add("hidden"));
+            if (screens[screenName]) {
+                screens[screenName].classList.remove("hidden");
+            }
+        }
+
+        function setStatus(message, isError = false) {
+            elements.statusMsg.innerText = message;
+            elements.statusMsg.style.color = isError ? "var(--error-color)" : "var(--disabled-color)";
+        }
 
         function connectMQTT() {
-            roomId = document.getElementById("roomCode").value.trim().toUpperCase();
-            const pass = document.getElementById("mqttPass").value.trim();
-            const status = document.getElementById("status-msg");
+            roomId = elements.roomCodeInput.value.trim().toUpperCase();
+            const password = elements.passwordInput.value.trim();
 
-            if(!roomId || !pass) { status.innerText = "Code & Passwort eingeben"; return; }
-            status.innerText = "Verbinde...";
+            if (!roomId || !password) {
+                setStatus("Code & Passwort eingeben", true);
+                return;
+            }
+
+            setStatus("Verbinde...");
+            elements.joinBtn.disabled = true;
 
             const clientId = "jeo_web_" + Math.random().toString(16).substr(2, 8);
+            const options = { clientId, username: MQTT_USER, password, keepalive: 60, connectTimeout: 5000 };
+
             try {
-                client = mqtt.connect(BROKER, { clientId, username: MQTT_USER, password: pass, keepalive: 60 });
-            } catch(e) { status.innerText = "Fehler: " + e; return; }
+                client = mqtt.connect(BROKER_URL, options);
+            } catch (e) {
+                setStatus("Verbindungsfehler", true);
+                elements.joinBtn.disabled = false;
+                return;
+            }
 
             client.on("connect", () => {
-                status.innerText = "Verbunden! Lade...";
+                setStatus("Verbunden! Lade Teams...");
                 client.subscribe(`jeopardy/${roomId}/#`, (err) => {
-                    if(!err) {
+                    if (err) {
+                        setStatus("Abo-Fehler", true);
+                        client.end();
+                    } else {
                         requestPlayers();
-                        retryFetch = setInterval(requestPlayers, 2000);
+                        playerListInterval = setInterval(requestPlayers, 3000); // Retry in case host is slow
                     }
                 });
             });
 
-            client.on("message", (topic, message) => {
-                const msg = message.toString();
-                
-                if (topic.endsWith("players_response") && !isPlaying) {
-                    if(retryFetch) clearInterval(retryFetch);
-                    try { showSelection(JSON.parse(msg)); } catch(e) {}
-                }
+            client.on("message", handleMqttMessage);
+            client.on("error", () => setStatus("Verbindung fehlgeschlagen", true));
+            client.on("close", () => { if (isPlaying) location.reload(); });
+        }
 
-                if (topic.endsWith("status_json") && isPlaying) {
-                    try { updateBuzzer(JSON.parse(msg)); } catch(e) {}
-                }
+        function handleMqttMessage(topic, message) {
+            const msg = message.toString();
+            const topicParts = topic.split('/');
 
-                if (topic.endsWith("status") && msg === "game_over") {
-                    alert("Spiel geschlossen"); location.reload();
-                }
+            if (topicParts.length < 3) return;
 
-                if (topic.endsWith("pong") && isPlaying) {
-                    try {
-                        const data = JSON.parse(msg);
-                        if (data.playerIdx === playerIdx && data.client_send_ts) {
-                            currentRtt = Date.now() - data.client_send_ts;
-                            document.getElementById("ping-display").innerText = `${currentRtt} ms`;
-                        }
-                    } catch(e) {}
-                }
-            });
+            const action = topicParts[2];
 
-            client.on("error", () => { status.innerText = "Verbindung fehlgeschlagen"; });
+            try {
+                if (action === "players_response" && !isPlaying) {
+                    clearInterval(playerListInterval);
+                    const players = JSON.parse(msg);
+                    renderPlayerSelection(players);
+                } else if (action === "status_json" && isPlaying) {
+                    const data = JSON.parse(msg);
+                    updateBuzzerState(data);
+                } else if (action === "status" && msg === "game_over") {
+                    alert("Das Spiel wurde vom Host beendet.");
+                    location.reload();
+                } else if (action === "pong" && isPlaying) {
+                    const data = JSON.parse(msg);
+                    if (data.playerIdx === playerIdx && data.client_send_ts) {
+                        currentRtt = Date.now() - data.client_send_ts;
+                        elements.pingDisplay.innerText = `${currentRtt} ms`;
+                    }
+                }
+            } catch (e) {
+                console.error("Fehler beim Verarbeiten der MQTT Nachricht:", e);
+            }
         }
 
         function requestPlayers() {
-            if(client?.connected) client.publish(`jeopardy/${roomId}/players_request`, "get");
+            if (client?.connected) {
+                client.publish(`jeopardy/${roomId}/players_request`, "get");
+            }
         }
 
-        function showSelection(players) {
-            document.getElementById("screen-login").classList.add("hidden");
-            document.getElementById("screen-select").classList.remove("hidden");
-            const list = document.getElementById("nameList"); list.innerHTML = "";
-            
+        function renderPlayerSelection(players) {
+            showScreen("select");
+            elements.nameList.innerHTML = "";
             players.forEach((p, idx) => {
                 const btn = document.createElement("button");
                 btn.className = "name-btn";
                 btn.innerText = p.name;
-                if(p.taken) { btn.disabled = true; btn.innerText += " (Aktiv)"; }
-                else { btn.onclick = () => startGame(idx, p.name); } 
-                list.appendChild(btn);
+                if (p.taken) {
+                    btn.disabled = true;
+                    btn.innerText += " (Belegt)";
+                } else {
+                    btn.onclick = () => startGame(idx, p.name);
+                }
+                elements.nameList.appendChild(btn);
             });
         }
 
         function startGame(idx, name) {
-            playerIdx = idx; isPlaying = true;
-            document.getElementById("screen-select").classList.add("hidden");
-            document.getElementById("screen-game").classList.remove("hidden");
-            document.getElementById("player-name").innerText = name;
-            document.getElementById("room-display").innerText = roomId;
-            
+            playerIdx = idx;
+            isPlaying = true;
+            clearInterval(playerListInterval);
+
+            elements.playerName.innerText = name;
+            elements.roomDisplay.innerText = `RAUM: ${roomId}`;
+            showScreen("game");
+
             client.publish(`jeopardy/${roomId}/join`, idx.toString());
-            pingInterval = setInterval(sendPing, 1000); 
+            pingInterval = setInterval(sendPing, 2000);
             sendPing();
         }
 
         function sendPing() {
-            if(!client?.connected) return;
+            if (!client?.connected) return;
             const payload = JSON.stringify({
-                type: "ping", playerIdx: playerIdx, 
-                ts: Date.now(), client_send_ts: Date.now(), last_rtt: currentRtt
+                type: "ping", playerIdx, ts: Date.now(),
+                client_send_ts: Date.now(), last_rtt: currentRtt
             });
             client.publish(`jeopardy/${roomId}/ping`, payload);
         }
 
-        function updateBuzzer(data) {
-            const btn = document.getElementById("buzzer-btn");
-            const stat = document.getElementById("game-status");
+        function setBuzzerAppearance(state, text) {
+            elements.buzzerBtn.className = `b-${state}`;
+            elements.buzzerBtn.innerText = text;
+        }
 
-            const isExcluded = data.excluded_list && data.excluded_list.includes(playerIdx);
+        function setGameStatus(text, color = "var(--disabled-color)") {
+            elements.gameStatus.innerText = text;
+            elements.gameStatus.style.color = color;
+        }
+
+        function updateBuzzerState(data) {
+            const isExcluded = data.excluded_list?.includes(playerIdx);
             const isActivePlayer = data.active_player_idx === playerIdx;
 
             if (data.state === "unlocked") {
-                // Host opened buzzers (new question or next attempt)
-                isQueued = false; 
-                
+                isQueued = false;
                 if (isExcluded) {
-                    btn.className = "b-excluded";
-                    btn.innerText = "GESPERRT";
-                    stat.innerText = "Bereits falsch geantwortet";
-                    stat.style.color = "#e71d36";
+                    setBuzzerAppearance("excluded", "GESPERRT");
+                    setGameStatus("Bereits falsch geantwortet", "var(--error-color)");
                 } else {
-                    btn.className = "b-unlocked";
-                    btn.innerText = "DRÜCKEN!";
-                    stat.innerText = "JETZT DRÜCKEN!";
-                    stat.style.color = "#2ec4b6";
-                    if(navigator.vibrate) navigator.vibrate(50);
+                    setBuzzerAppearance("unlocked", "DRÜCKEN!");
+                    setGameStatus("JETZT DRÜCKEN!", "var(--success-color)");
+                    if (navigator.vibrate) navigator.vibrate(50);
                 }
-            } else {
-                // LOCKED state
+            } else { // "locked" state
+                if (data.active_player_idx === null) isQueued = false;
 
-                // FIX: If active player is null (question closed), reset queue.
-                if (data.active_player_idx === null) {
-                    isQueued = false;
-                }
-
-                // 1. Check if I am the active player (Highest priority status)
                 if (isActivePlayer) {
-                    isQueued = false; // I am now active
-                    btn.className = "b-active";
-                    btn.innerText = "DU BIST DRAN";
-                    stat.innerText = "Antworte jetzt!";
-                    stat.style.color = "#eab308";
-                    if(navigator.vibrate) navigator.vibrate([100, 50, 100]);
-                } 
-                // 2. Check if I am queued (I pressed buzz recently and am waiting)
-                else if (isQueued) {
-                    btn.className = "b-queued";
-                    btn.innerText = "EINGEREIHT";
-                    stat.innerText = "Du bist in der Warteschlange...";
-                    stat.style.color = "#eab308";
-                } 
-                // 3. Check if I am excluded (Answered wrong in this round)
-                else if (isExcluded) {
-                    isQueued = false; // Ensure queue state is cleared if excluded
-                    btn.className = "b-excluded";
-                    btn.innerText = "GESPERRT";
-                    stat.innerText = "Bereits falsch geantwortet";
-                    stat.style.color = "#e71d36";
-                }
-                // 4. Default Locked
-                else {
-                    btn.className = "b-locked";
-                    btn.innerText = "GESPERRT";
-                    stat.innerText = "Warte auf Frage...";
-                    stat.style.color = "#5a6b85";
+                    isQueued = false;
+                    setBuzzerAppearance("active", "DU BIST DRAN");
+                    setGameStatus("Antworte jetzt!", "var(--active-color)");
+                    if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
+                } else if (isQueued) {
+                    setBuzzerAppearance("queued", "EINGEREIHT");
+                    setGameStatus("Du bist in der Warteschlange...", "var(--queue-color)");
+                } else if (isExcluded) {
+                    isQueued = false;
+                    setBuzzerAppearance("excluded", "GESPERRT");
+                    setGameStatus("Bereits falsch geantwortet", "var(--error-color)");
+                } else {
+                    setBuzzerAppearance("locked", "GESPERRT");
+                    setGameStatus("Warte auf Frage...");
                 }
             }
         }
 
         function handleBuzz() {
-            const btn = document.getElementById("buzzer-btn");
-            if (!btn.classList.contains("b-unlocked")) return;
+            if (!elements.buzzerBtn.classList.contains("b-unlocked")) return;
 
             client.publish(`jeopardy/${roomId}/buzz`, JSON.stringify({
-                type: "buzz", playerIdx: playerIdx, ts: Date.now()
+                type: "buzz", playerIdx, ts: Date.now()
             }));
 
-            // Set Queued State Locally immediately
             isQueued = true;
-            
-            // Immediate Feedback
-            btn.className = "b-queued";
-            btn.innerText = "EINGEREIHT";
-            document.getElementById("game-status").innerText = "Du bist in der Warteschlange...";
-            document.getElementById("game-status").style.color = "#eab308";
-            
-            if(navigator.vibrate) navigator.vibrate([30,30]);
+            setBuzzerAppearance("queued", "EINGEREIHT");
+            setGameStatus("Du bist in der Warteschlange...", "var(--queue-color)");
+            if (navigator.vibrate) navigator.vibrate([30, 30]);
         }
 
         function leaveGame() {
-            if(confirm("Spiel verlassen?")) {
-                if(client) client.publish(`jeopardy/${roomId}/leave`, playerIdx.toString());
+            if (confirm("Spiel wirklich verlassen?")) {
+                if (client) client.publish(`jeopardy/${roomId}/leave`, playerIdx.toString());
                 location.reload();
             }
         }
-        
+
+        // --- EVENT LISTENERS ---
+        elements.joinBtn.addEventListener("click", connectMQTT);
+        elements.buzzerBtn.addEventListener("click", handleBuzz);
+        elements.buzzerBtn.addEventListener("touchstart", (e) => { e.preventDefault(); handleBuzz(); });
         window.addEventListener('keydown', (e) => {
-            if(e.code === 'Space' && isPlaying) { e.preventDefault(); handleBuzz(); }
+            if (e.code === 'Space' && isPlaying) { e.preventDefault(); handleBuzz(); }
         });
+
     </script>
 </body>
 </html>
